@@ -581,12 +581,12 @@ if(ADMIN){ $("adminCard").hidden=false; document.querySelector(".top h1").textCo
 const RECEIVER_URL = "https://script.google.com/macros/s/AKfycbwXkUV7BxdGMaX1usDNy9v_4f4JNET9kqr1uBnTC4icX2q7AbcsQ03dm_7MiVLvKoyxqg/exec";
 
 function blobToB64(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=rej; r.readAsDataURL(blob); }); }
-async function posterBlob(){ const big=document.createElement("canvas"); big.width=W*2; big.height=H*2; renderTo(big.getContext("2d"),2); return await new Promise(r=>big.toBlob(r,"image/png")); }
+async function posterBlob(type="image/png",q){ const big=document.createElement("canvas"); big.width=W*2; big.height=H*2; renderTo(big.getContext("2d"),2); return await new Promise(r=>big.toBlob(r,type,q)); }
 function photoB64(){
   const im=photo.img; if(!im) return "";
-  const k=Math.min(1,1600/Math.max(im.width,im.height)), c=document.createElement("canvas");
+  const k=Math.min(1,1400/Math.max(im.width,im.height)), c=document.createElement("canvas");
   c.width=Math.round(im.width*k); c.height=Math.round(im.height*k); c.getContext("2d").drawImage(im,0,0,c.width,c.height);
-  return c.toDataURL("image/jpeg",0.9).split(",")[1];
+  return c.toDataURL("image/jpeg",0.85).split(",")[1];
 }
 function sendStatus(t,kind){ const el=$("sendStatus"); el.textContent=t; el.className="status"+(kind?" "+kind:""); }
 let sent=false;
@@ -599,9 +599,9 @@ $("send").onclick=async()=>{
   if(!photo.img) missing.splice(1,0,"الصورة");
   if(missing.length){ sendStatus("أكمل قبل الإرسال: "+missing.join("، "),"err"); return; }
   if(!/^https:\/\/script\.google\.com\//.test(RECEIVER_URL)){ sendStatus("الإرسال غير مفعّل بعد. تواصل مع المؤسسة.","err"); return; }
-  const btn=$("send"); btn.disabled=true; btn.textContent="جارٍ الإرسال…"; sendStatus("قد يستغرق ذلك بضع ثوانٍ، لا تغلق الصفحة.");
+  const btn=$("send"); btn.disabled=true; btn.textContent="جارٍ الإرسال…"; sendStatus("لا تغلق الصفحة حتى تظهر رسالة التأكيد.");
   try{
-    const payload={ poster:await blobToB64(await posterBlob()), photo:photoB64(),
+    const payload={ poster:await blobToB64(await posterBlob("image/jpeg",0.95)), posterType:"image/jpeg", photo:photoB64(),
       name:state.name, degree:state.degree, spec:state.spec, thesis:state.thesis, date:state.date, dateISO:state.dateISO, faculty:state.faculty, uni:state.uni, batch:state.batch, phone:state.phone };
     const res=await fetch(RECEIVER_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
     const j=await res.json(); if(!j.ok) throw new Error(j.error||"failed");
