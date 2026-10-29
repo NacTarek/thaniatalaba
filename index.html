@@ -150,7 +150,8 @@ details[open] summary::before{content:"−"}
             <span class="btn datebtn">تقويم<input type="date" id="datePick" aria-label="اختيار التاريخ من التقويم"></span>
           </div>
         </div>
-        <label for="uni">الجامعة<input type="text" id="uni"></label>
+        <label for="faculty">الكلية / مكان المناقشة <span class="sub">يظهر في نص المنشور فقط</span><input type="text" id="faculty" placeholder="مثال: كلية العلوم الاجتماعية والإنسانية (القطب 03)"></label>
+        <label for="uni">الجامعة<input type="text" id="uni" placeholder="مثال: جامعة غرداية"></label>
       </section>
 
       <section class="card">
@@ -159,10 +160,25 @@ details[open] summary::before{content:"−"}
         <button type="button" class="btn gold big" id="send">إرسال البطاقة</button>
         <p class="status" id="sendStatus">راجع البطاقة في المعاينة، ثم اضغط إرسال.</p>
       </section>
-      <div hidden>
-        <input type="text" id="org"><input type="text" id="closing">
-        <button type="button" id="next"></button><button type="button" id="pickLogo"></button><input type="file" id="logoFile">
-      </div>
+      <section class="card" id="adminCard" hidden>
+        <h2>أدوات المشرف</h2>
+        <div class="bar">
+          <button type="button" class="btn" id="next">خريج جديد</button>
+          <p class="hint" style="flex:1;min-width:180px">يمسح بيانات الخريج وصورته، ويُبقي الجامعة والتاريخ والدفعة.</p>
+        </div>
+        <details>
+          <summary>نصوص ثابتة وشعار (لهذا المتصفح فقط)</summary>
+          <div style="display:grid;gap:12px;margin-top:12px">
+            <label for="org">اسم المؤسسة<input type="text" id="org"></label>
+            <label for="closing">عبارة الختام<input type="text" id="closing"></label>
+            <div class="bar">
+              <button type="button" class="btn small" id="pickLogo">تغيير الشعار</button>
+              <span class="hint">PNG أبيض بخلفية شفافة</span>
+            </div>
+            <input type="file" id="logoFile" accept="image/*" hidden>
+          </div>
+        </details>
+      </section>
     </form>
 
     <section class="preview" aria-label="المعاينة">
@@ -183,7 +199,7 @@ const LOGO_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAJ0AAABQCAYAAAAD
 const SAMPLE_SRC = "";
 
 const DEFAULTS = {
-  gender:"m", name:"", phone:"", title:"الدكتور الفاضل",
+  gender:"m", name:"", phone:"", faculty:"", dateISO:"", title:"الدكتور الفاضل",
   degree:"الدكتوراه", spec:"",
   thesis:"",
   date:"", uni:"", batch:"2026",
@@ -194,7 +210,7 @@ const TITLES = {
   m:{"الدكتوراه":"الدكتور الفاضل","الماجستير":"الأستاذ الفاضل","الماستر":"الأستاذ الفاضل","الليسانس":"الأستاذ الفاضل","الهندسة":"المهندس الفاضل"},
   f:{"الدكتوراه":"الدكتورة الفاضلة","الماجستير":"الأستاذة الفاضلة","الماستر":"الأستاذة الفاضلة","الليسانس":"الأستاذة الفاضلة","الهندسة":"المهندسة الفاضلة"}
 };
-const FIELDS = ["name","phone","spec","thesis","date","uni","batch","org","closing"];
+const FIELDS = ["name","phone","faculty","spec","thesis","date","uni","batch","org","closing"];
 const KEY = "grad-card-student-v1";
 
 let state = {...DEFAULTS};
@@ -209,6 +225,8 @@ const $ = id => document.getElementById(id);
 const cv = $("cv"); let ctx = cv.getContext("2d");
 const W = 1080, H = 1080;
 
+const ADMIN = /[?&]admin\b/.test(location.search) || location.hash==="#admin";
+if(!ADMIN){ state.org=DEFAULTS.org; state.closing=DEFAULTS.closing; }
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify({fields:state,titleTouched})) }catch(e){} }
 
 function loadImg(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
@@ -269,13 +287,13 @@ const MONTHS=["يناير","فبراير","مارس","أبريل","مايو","ي
 $("datePick").addEventListener("change",e=>{
   const v=e.target.value; if(!v) return;
   const [y,m,d]=v.split("-").map(Number);
-  state.date=`${d} ${MONTHS[m-1]} ${y}`; $("date").value=state.date;
+  state.date=`${d} ${MONTHS[m-1]} ${y}`; $("date").value=state.date; state.dateISO=v;
   if(!state.batch || /^\d{4}$/.test(state.batch)){ state.batch=String(y); $("batch").value=state.batch; }
   save(); draw();
 });
 
 $("next").onclick=()=>{
-  ["name","thesis","spec"].forEach(f=>{ state[f]=""; $(f).value=""; });
+  ["name","thesis","spec","phone","faculty"].forEach(f=>{ state[f]=""; $(f).value=""; }); state.dateISO="";
   photo={img:null,zoom:1,ox:0,oy:0}; $("zoom").value=1; setThumb();
   $("fallback").hidden=true;
   save(); draw(); $("name").focus();
@@ -450,7 +468,25 @@ function draw(scale=1){
   while(lines.length>3 && tf>15){ tf--; lines=wrap("«"+raw+"»",F(500,tf),700); }
   if(lines.length>3){ lines=lines.slice(0,3); lines[2]=lines[2].replace(/.$/,"…»"); }
   const lh=tf*1.55, bh=Math.max(58,lines.length*lh+22);
-  const up=bh-58, pup=Math.round(up*0.55);
+  // degree line: one line if it fits, otherwise "تخصص …" moves to its own line(s)
+  const degRuns=[{t:"بمناسبة نيله شهادة", font:F(300,24), color:C.soft},{space:16},{t:state.degree, font:F(700,22), pill:true}];
+  const spec=state.spec.trim();
+  const runsW=rs=>rs.reduce((a,r)=>a+measureRun(r),0);
+  let degLines;
+  if(!spec) degLines=[degRuns];
+  else {
+    const one=degRuns.concat([{space:16},{t:"تخصص ", font:F(300,24), color:C.soft},{space:6},{t:spec, font:F(700,24), color:C.white}]);
+    if(runsW(one)<=820) degLines=[one];
+    else {
+      const pre=[{t:"تخصص ", font:F(300,24), color:C.soft},{space:6}], preW=runsW(pre);
+      let sf=24, sl=wrap(spec,F(700,sf),700-preW);
+      while(sl.length>1 && sf>19){ sf--; sl=wrap(spec,F(700,sf),700-preW); }
+      if(sl.length>2){ sl=sl.slice(0,2); sl[1]=sl[1].replace(/.$/,"…"); }
+      degLines=[degRuns, pre.concat([{t:sl[0], font:F(700,sf), color:C.white}])];
+      if(sl[1]) degLines.push([{t:sl[1], font:F(700,sf), color:C.white}]);
+    }
+  }
+  const DL=38, upT=bh-58, up=upT+(degLines.length-1)*DL, pup=Math.round(up*0.55);
   const PX=540, PY=375-pup;
   c.save(); c.strokeStyle="rgba(255,255,255,.09)"; c.lineWidth=1.2;
   c.beginPath(); c.arc(PX,PY,262,0,Math.PI*2); c.stroke(); c.restore();
@@ -484,13 +520,10 @@ function draw(scale=1){
   c.fillStyle=C.white; c.fillText(state.name || "اسم الخريج", 540, y);
 
   y=798-up;
-  const runs=[{t:(fem?"بمناسبة نيلها شهادة":"بمناسبة نيله شهادة"), font:F(300,24), color:C.soft},
-    {space:16},{t:state.degree, font:F(700,22), pill:true},{space:16}];
-  if(state.spec.trim()) runs.push({t:"تخصص ", font:F(300,24), color:C.soft},{space:6},{t:state.spec, font:F(700,24), color:C.white});
-  drawRuns(runs,540,y);
+  degLines.forEach((ln,i)=>drawRuns(ln,540,y+i*DL));
 
   // thesis box
-  y=841-up;
+  y=841-upT;
   const bx=160, bw=760;
   c.save(); c.fillStyle="rgba(22,32,135,.55)"; rr(bx,y,bw,bh,14); c.fill();
   c.strokeStyle="rgba(150,170,255,.35)"; c.lineWidth=1.2; c.stroke(); c.restore();
@@ -541,6 +574,8 @@ $("dl").onclick=async()=>{
   $("fbImg").src=URL.createObjectURL(blob); $("fallback").hidden=false; setStatus("");
 };
 
+if(ADMIN){ $("adminCard").hidden=false; document.querySelector(".top h1").textContent="صانع بطاقات التهنئة · المشرف"; document.title="صانع بطاقات التهنئة"; }
+
 // ---------- send to the foundation ----------
 // ضع هنا رابط Web app الذي حصلت عليه من Google Apps Script
 const RECEIVER_URL = "https://script.google.com/macros/s/AKfycbwXkUV7BxdGMaX1usDNy9v_4f4JNET9kqr1uBnTC4icX2q7AbcsQ03dm_7MiVLvKoyxqg/exec";
@@ -556,6 +591,7 @@ function photoB64(){
 function sendStatus(t,kind){ const el=$("sendStatus"); el.textContent=t; el.className="status"+(kind?" "+kind:""); }
 let sent=false;
 function resetSent(){ if(!sent) return; sent=false; $("send").disabled=false; $("send").textContent="إرسال البطاقة"; sendStatus("عدّلت البطاقة. يمكنك إرسالها مرة أخرى."); }
+$("date").addEventListener("input",()=>{ state.dateISO=""; save(); });
 $("form").addEventListener("input",resetSent); $("form").addEventListener("change",resetSent);
 $("send").onclick=async()=>{
   const need=[["name","الاسم"],["degree","الشهادة"],["spec","التخصص"],["thesis","الموضوع"],["date","التاريخ"],["uni","الجامعة"]];
@@ -566,7 +602,7 @@ $("send").onclick=async()=>{
   const btn=$("send"); btn.disabled=true; btn.textContent="جارٍ الإرسال…"; sendStatus("قد يستغرق ذلك بضع ثوانٍ، لا تغلق الصفحة.");
   try{
     const payload={ poster:await blobToB64(await posterBlob()), photo:photoB64(),
-      name:state.name, degree:state.degree, spec:state.spec, thesis:state.thesis, date:state.date, uni:state.uni, batch:state.batch, phone:state.phone };
+      name:state.name, degree:state.degree, spec:state.spec, thesis:state.thesis, date:state.date, dateISO:state.dateISO, faculty:state.faculty, uni:state.uni, batch:state.batch, phone:state.phone };
     const res=await fetch(RECEIVER_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
     const j=await res.json(); if(!j.ok) throw new Error(j.error||"failed");
     sent=true; btn.textContent="تم الإرسال ✓"; sendStatus("وصلت بطاقتك، شكراً لك. ستُنشر قريباً بإذن الله.","ok");
