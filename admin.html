@@ -342,7 +342,10 @@ async function download(i, kind, b){
 /* ---------- prepare a manual post ----------
    Phone: 1st tap loads the poster, 2nd tap copies the text and opens the share sheet (pick Facebook / Business Suite).
    Computer: opens Business Suite's composer, copies the text and downloads the poster to attach. */
-const SHARE_FILES = (() => { try { return !!(navigator.canShare && navigator.canShare({ files:[new File(["x"],"a.png",{type:"image/png"})] })); } catch(e){ return false; } })();
+// Share sheet only on phones/tablets (where the Facebook and Business Suite apps appear in it).
+// Computers, including Mac Safari, use the Business Suite editor link instead.
+const IS_TOUCH = (() => { try { return matchMedia("(pointer:coarse)").matches && navigator.maxTouchPoints > 0; } catch(e){ return false; } })();
+const SHARE_FILES = IS_TOUCH && (() => { try { return !!(navigator.canShare && navigator.canShare({ files:[new File(["x"],"a.png",{type:"image/png"})] })); } catch(e){ return false; } })();
 const COMPOSER = "https://business.facebook.com/latest/composer";
 
 // Computer: a real link opens the editor (browsers never block a link the user clicks),
