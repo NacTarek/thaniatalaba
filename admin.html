@@ -72,6 +72,7 @@ main{padding-block:20px 60px}
 .actions{display:flex;flex-wrap:wrap;gap:8px}
 .actions .grow{flex:1}
 .actions.main{display:grid;grid-template-columns:1fr 1fr}
+.actions.main .wide{grid-column:1/-1}
 details{border-top:1px solid var(--line);padding-top:10px}
 summary{cursor:pointer;color:var(--muted);font-size:13.5px}
 dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:10px 0 0;font-size:14px}
@@ -167,7 +168,9 @@ const store = {
 async function api(action, extra = {}){
   const res = await fetch(API, { method:"POST", headers:{ "Content-Type":"text/plain;charset=utf-8" },
     body: JSON.stringify({ action, key: KEY, ...extra }) });
-  const j = await res.json();
+  let j;
+  try { j = JSON.parse(await res.text()); }
+  catch(_) { const e = new Error("bad_response"); e.code = "bad_response"; throw e; }
   if (!j.ok) { const e = new Error(j.error || "failed"); e.code = j.error; e.detail = j.detail; throw e; }
   return j;
 }
@@ -181,9 +184,13 @@ const ERR = {
   time_too_soon: "اختر وقتاً بعد 10 دقائق على الأقل من الآن.",
   time_too_far: "فيسبوك يقبل الجدولة حتى 30 يوماً فقط.",
   not_found: "الطلب غير موجود. حدّث الصفحة.",
-  no_file: "لا يوجد ملف لهذا الطلب."
+  no_file: "لا يوجد ملف لهذا الطلب.",
+  missing_fields: "المستقبِل ما زال يعمل بالنسخة القديمة من Code.gs. في Apps Script: Deploy ← Manage deployments ← ✏️ ← New version ← Deploy.",
+  unknown_action: "المستقبِل ما زال يعمل بالنسخة القديمة من Code.gs. انشر New version.",
+  bad_response: "ردّ غير متوقع من المستقبِل. شغّل الدالة setup في Apps Script ووافق على الأذونات، ثم انشر New version."
 };
-const errText = e => ERR[e.code] || (e.code === "facebook" ? "رفض فيسبوك الطلب: " + (e.detail || "") : "تعذّر الاتصال. تحقق من الإنترنت وحاول مرة أخرى.");
+const errText = e => ERR[e.code] || (e.code === "facebook" ? "رفض فيسبوك الطلب: " + (e.detail || "")
+  : e.code ? "خطأ من المستقبِل: " + e.code : "تعذّر الاتصال. تحقق من الإنترنت وحاول مرة أخرى.");
 
 /* ---------- login ---------- */
 $("login").addEventListener("submit", async e => {
@@ -217,6 +224,7 @@ const ICON = {
   copy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
   down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>',
   fb:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>',
+  fb2:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7M21 3l-9 9M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>'
 };
 const fmt = iso => { if(!iso) return ""; const d=new Date(iso); if(isNaN(d)) return iso;
@@ -261,6 +269,7 @@ function card(i){
 
   const actions = el("div","actions main");
   actions.append(
+    btn(SHARE_FILES ? "تحضير للنشر" : "فتح محرّر فيسبوك", ICON.fb2, "gold wide", b => prepare(i,b)),
     btn("نسخ النص", ICON.copy, "", () => copy(i.post)),
     btn("تنزيل البطاقة", ICON.down, "", b => download(i,"poster",b)),
     btn(i.fbStatus==="scheduled" ? "جدولة مرة أخرى" : "جدولة في فيسبوك", ICON.fb, "", () => openSchedule(i)),
@@ -291,16 +300,56 @@ async function copy(text){
   }
 }
 
+async function fetchFile(i, kind){
+  const cacheKey = "_" + kind;
+  if (i[cacheKey]) return i[cacheKey];
+  const f = await api("file", { id:i.id, kind });
+  const bytes = Uint8Array.from(atob(f.data), ch => ch.charCodeAt(0));
+  const name = f.name.replace(/^\d{4}-\d{2}-\d{2} \d{2}-\d{2} - /,"");
+  return (i[cacheKey] = new File([bytes], name, { type:f.mime }));
+}
+function saveFile(file){
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a"); a.href=url; a.download=file.name; document.body.append(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 5000);
+}
+function setLabel(b, t){ b.lastChild.textContent = t; }
+
 async function download(i, kind, b){
-  const label = b.lastChild.textContent; b.disabled = true; b.lastChild.textContent = "جارٍ التنزيل…";
-  try{
-    const f = await api("file", { id:i.id, kind });
-    const bytes = Uint8Array.from(atob(f.data), ch => ch.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type:f.mime }));
-    const a = document.createElement("a"); a.href=url; a.download=f.name.replace(/^\d{4}-\d{2}-\d{2} \d{2}-\d{2} - /,""); document.body.append(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url), 5000);
-  }catch(e){ toast(errText(e),"err"); }
-  b.disabled = false; b.lastChild.textContent = label;
+  const label = b.lastChild.textContent; b.disabled = true; setLabel(b, "جارٍ التنزيل…");
+  try{ saveFile(await fetchFile(i, kind)); }
+  catch(e){ toast(errText(e),"err"); }
+  b.disabled = false; setLabel(b, label);
+}
+
+/* ---------- prepare a manual post ----------
+   Phone: 1st tap loads the poster, 2nd tap copies the text and opens the share sheet (pick Facebook / Business Suite).
+   Computer: opens Business Suite's composer, copies the text and downloads the poster to attach. */
+const SHARE_FILES = (() => { try { return !!(navigator.canShare && navigator.canShare({ files:[new File(["x"],"a.png",{type:"image/png"})] })); } catch(e){ return false; } })();
+const COMPOSER = "https://business.facebook.com/latest/composer";
+
+async function prepare(i, b){
+  if (SHARE_FILES) {
+    if (!i._poster) {
+      b.disabled = true; setLabel(b, "جارٍ تحضير البطاقة…");
+      try { await fetchFile(i, "poster"); setLabel(b, "مشاركة إلى فيسبوك"); toast("جاهز. اضغط «مشاركة إلى فيسبوك»", "ok"); }
+      catch(e){ toast(errText(e),"err"); setLabel(b, "تحضير للنشر"); }
+      b.disabled = false; return;
+    }
+    try { navigator.clipboard.writeText(i.post).catch(()=>{}); } catch(e){}
+    try {
+      await navigator.share({ files:[i._poster], text:i.post });
+      toast("الصق النص في المنشور (نُسخ تلقائياً)", "ok");
+    } catch(e){ if (e.name !== "AbortError") toast("تعذّرت المشاركة. استعمل «تنزيل البطاقة» و«نسخ النص».", "err"); }
+    return;
+  }
+  // computer
+  window.open(COMPOSER, "_blank", "noopener");
+  await copy(i.post);
+  const label = b.lastChild.textContent; b.disabled = true; setLabel(b, "جارٍ تنزيل البطاقة…");
+  try { saveFile(await fetchFile(i, "poster")); toast("نُسخ النص ونُزّلت البطاقة: الصق النص وأرفق الصورة في نافذة فيسبوك", "ok"); }
+  catch(e){ toast(errText(e),"err"); }
+  b.disabled = false; setLabel(b, label);
 }
 
 async function setStatus(i, status, b){
