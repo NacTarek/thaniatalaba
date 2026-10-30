@@ -695,6 +695,11 @@ function photoB64(){
   c.width=Math.round(im.width*k); c.height=Math.round(im.height*k); c.getContext("2d").drawImage(im,0,0,c.width,c.height);
   return c.toDataURL("image/jpeg",0.85).split(",")[1];
 }
+function thumbB64(){
+  const t=document.createElement("canvas"); t.width=t.height=320;
+  t.getContext("2d").drawImage(cv,0,0,320,320);
+  return t.toDataURL("image/jpeg",0.72).split(",")[1];
+}
 function sendStatus(t,kind){ const el=$("sendStatus"); el.textContent=t; el.className="status"+(kind?" "+kind:""); }
 let sent=false;
 function resetSent(){ if(!sent) return; sent=false; $("send").disabled=false; $("send").textContent="إرسال البطاقة"; sendStatus("عدّلت البطاقة. يمكنك إرسالها مرة أخرى."); }
@@ -709,7 +714,7 @@ $("send").onclick=async()=>{
   if(!/^https:\/\/script\.google\.com\//.test(RECEIVER_URL)){ sendStatus("الإرسال غير مفعّل بعد. تواصل مع المؤسسة.","err"); return; }
   const btn=$("send"); btn.disabled=true; btn.textContent="جارٍ الإرسال…"; sendStatus("لا تغلق الصفحة حتى تظهر رسالة التأكيد.");
   try{
-    const payload={ poster:await blobToB64(await posterBlob("image/jpeg",0.95)), posterType:"image/jpeg", photo:photoB64(),
+    const payload={ poster:await blobToB64(await posterBlob("image/png")), posterType:"image/png", thumb:thumbB64(), photo:photoB64(),
       name:state.name, degree:state.degree, spec:state.spec, thesis:state.thesis, date:state.date, dateISO:state.dateISO, faculty:state.faculty, uni:uniFull(), batch:state.batch, phone:state.phone };
     const res=await fetch(RECEIVER_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
     const j=await res.json(); if(!j.ok) throw new Error(j.error||"failed");
