@@ -75,6 +75,17 @@ input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-vis
 .inline input[type=text]{flex:1;min-width:0}
 .datebtn{position:relative;overflow:hidden}
 .cropper{display:grid;gap:12px}
+.thesisBox{display:grid;gap:6px}
+.thesisHead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.thesisHead > label:first-child{font-weight:500;font-size:14px}
+.switch{display:inline-flex!important;align-items:center;gap:7px;font-size:13px;color:var(--muted);cursor:pointer;font-weight:400}
+.switch input{width:auto;accent-color:var(--gold);margin:0}
+textarea:disabled{opacity:.45}
+dialog#confirmNoThesis{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:18px;padding:0;width:min(420px,calc(100% - 32px))}
+dialog#confirmNoThesis::backdrop{background:rgba(5,8,35,.7)}
+.confirm{display:grid;gap:16px;padding:20px}
+.confirmText{margin:0;font-size:16px;font-weight:600;line-height:1.8}
+.confirmBtns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 #crop{display:block;width:100%;max-width:340px;margin:0 auto;aspect-ratio:1/1;height:auto;border-radius:14px;background:var(--ink);touch-action:none;cursor:grab}
 #crop.dragging{cursor:grabbing}
 .zoomrow .btn.small{width:42px;padding:6px 0;font-size:18px;line-height:1}
@@ -158,7 +169,14 @@ details[open] summary::before{content:"−"}
           <label for="spec">التخصص<input type="text" id="spec" placeholder="شريعة وقانون"></label>
         </div>
         <label for="degreeOther" id="degreeOtherWrap" hidden>اسم الشهادة<input type="text" id="degreeOther" placeholder="مثال: الماجستير"></label>
-        <label for="thesis">موضوع الأطروحة / المذكرة<textarea id="thesis" rows="3" placeholder="عنوان البحث بدون علامات التنصيص"></textarea></label>
+        <div class="thesisBox">
+          <div class="thesisHead">
+            <label for="thesis">موضوع الأطروحة / المذكرة</label>
+            <label class="switch" for="noThesis"><input type="checkbox" id="noThesis"><span>بدون موضوع</span></label>
+          </div>
+          <textarea id="thesis" rows="3" placeholder="عنوان البحث بدون علامات التنصيص"></textarea>
+          <p class="hint" id="noThesisNote" hidden>لن يظهر موضوع البحث في البطاقة ولا في المنشور.</p>
+        </div>
       </section>
 
       <section class="card">
@@ -223,6 +241,15 @@ details[open] summary::before{content:"−"}
     </section>
   </div>
 </div>
+<dialog id="confirmNoThesis" dir="rtl" lang="ar">
+  <form method="dialog" class="confirm">
+    <p class="confirmText">هل أنت متأكد من عدم وضع موضوع الأطروحة؟<br>لدواعي أرشيفية، الأحسن أن تملئها.</p>
+    <div class="confirmBtns">
+      <button class="btn gold" value="fill">سأملؤها</button>
+      <button class="btn" value="skip">نعم، بدون موضوع</button>
+    </div>
+  </form>
+</dialog>
 <button type="button" class="peek" id="peek" hidden><img id="peekImg" alt="">عرض البطاقة</button>
 
 <script>
@@ -233,7 +260,7 @@ const DEFAULTS = {
   gender:"m", name:"", phone:"", faculty:"", dateISO:"", title:"الدكتور الفاضل",
   degree:"الدكتوراه", spec:"",
   thesis:"",
-  date:"", uni:"", instType:"جامعة", instOther:"", batch:"2026",
+  date:"", uni:"", instType:"جامعة", instOther:"", noThesis:false, batch:"2026",
   org:"مؤسسة الطلبة الجامعيين القراريين",
   closing:"هنيئًا لكم هذا الإنجاز، ونفع الله بعلمكم البلاد والعباد"
 };
@@ -292,6 +319,22 @@ $("degree").addEventListener("change",e=>{
   else setDegree(v);
 });
 $("degreeOther").addEventListener("input",e=>setDegree(e.target.value.trim()));
+// "بدون موضوع": confirmation before removing the thesis from the poster
+function applyNoThesis(){
+  $("noThesis").checked=!!state.noThesis; $("thesis").disabled=!!state.noThesis; $("noThesisNote").hidden=!state.noThesis;
+}
+applyNoThesis();
+$("noThesis").addEventListener("change",e=>{
+  if(!e.target.checked){ state.noThesis=false; applyNoThesis(); save(); draw(); $("thesis").focus(); return; }
+  e.target.checked=false;   // stays off until confirmed
+  const dlg=$("confirmNoThesis");
+  const done=()=>{
+    dlg.removeEventListener("close",done);
+    if(dlg.returnValue==="skip"){ state.noThesis=true; applyNoThesis(); save(); draw(); }
+    else { $("thesis").focus(); }
+  };
+  dlg.returnValue=""; dlg.addEventListener("close",done); dlg.showModal();
+});
 $("instType").value=state.instType||"جامعة"; $("instOther").hidden=$("instType").value!=="__other";
 $("instType").addEventListener("change",e=>{
   state.instType=e.target.value; $("instOther").hidden=state.instType!=="__other";
@@ -567,6 +610,7 @@ function draw(scale=1){
   if(L){ const bw=160,bh=82, k=Math.min(bw/L.width,bh/L.height), w=L.width*k, h=L.height*k; c.drawImage(L,966-w,77+(bh-h)/2,w,h); }
 
   // photo
+  const noTh=!!state.noThesis;
   const raw=state.thesis||"موضوع الأطروحة";
   let tf=22, lines=wrap("«"+raw+"»",F(500,tf),700);
   while(lines.length>3 && tf>15){ tf--; lines=wrap("«"+raw+"»",F(500,tf),700); }
@@ -590,7 +634,7 @@ function draw(scale=1){
       if(sl[1]) degLines.push([{t:sl[1], font:F(700,sf), color:C.white}]);
     }
   }
-  const DL=38, upT=bh-58, up=upT+(degLines.length-1)*DL, pup=Math.round(up*0.55);
+  const DL=38, upT=noTh ? -70 : bh-58, up=upT+(degLines.length-1)*DL, pup=Math.round(up*0.55);
   // photo fills the space between the top of the card and the first text line
   const topLim=96, botLim=(684-up)-34, half=(botLim-topLim)/2;
   const sc=Math.max(0.8, Math.min(1.25, half/218));
@@ -630,6 +674,8 @@ function draw(scale=1){
   degLines.forEach((ln,i)=>drawRuns(ln,540,y+i*DL));
 
   // thesis box
+  if(noTh){ y=928; }
+  else {
   y=841-upT;
   const bx=160, bw=760;
   c.save(); c.fillStyle="rgba(22,32,135,.55)"; rr(bx,y,bw,bh,14); c.fill();
@@ -643,6 +689,7 @@ function draw(scale=1){
   lines.forEach((ln,i)=>c.fillText(ln,540,y+bh/2+(i-(lines.length-1)/2)*lh+1));
 
   y+=bh+29;
+  }
   drawRuns([
     {icon:"cal"},{space:12},{t:state.date||"تاريخ المناقشة", font:F(500,22), color:C.white},
     {space:26},{diamond:true,space:8},{space:26},
@@ -706,7 +753,7 @@ function resetSent(){ if(!sent) return; sent=false; $("send").disabled=false; $(
 $("date").addEventListener("input",()=>{ state.dateISO=""; save(); });
 $("form").addEventListener("input",resetSent); $("form").addEventListener("change",resetSent);
 $("send").onclick=async()=>{
-  const need=[["name","الاسم"],["degree","الشهادة"],["spec","التخصص"],["thesis","الموضوع"],["date","التاريخ"],["uni","اسم المؤسسة"]];
+  const need=[["name","الاسم"],["degree","الشهادة"],["spec","التخصص"],["thesis","الموضوع"],["date","التاريخ"],["uni","اسم المؤسسة"]].filter(([k])=>!(k==="thesis" && state.noThesis));
   const missing=need.filter(([k])=>!String(state[k]||"").trim()).map(([,l])=>l);
   if(!photo.img) missing.splice(1,0,"الصورة");
   if(state.instType==="__other" && !String(state.instOther||"").trim()) missing.push("نوع المؤسسة");
@@ -715,7 +762,7 @@ $("send").onclick=async()=>{
   const btn=$("send"); btn.disabled=true; btn.textContent="جارٍ الإرسال…"; sendStatus("لا تغلق الصفحة حتى تظهر رسالة التأكيد.");
   try{
     const payload={ poster:await blobToB64(await posterBlob("image/png")), posterType:"image/png", thumb:thumbB64(), photo:photoB64(),
-      name:state.name, degree:state.degree, spec:state.spec, thesis:state.thesis, date:state.date, dateISO:state.dateISO, faculty:state.faculty, uni:uniFull(), batch:state.batch, phone:state.phone };
+      name:state.name, degree:state.degree, spec:state.spec, thesis:state.noThesis?"":state.thesis, noThesis:!!state.noThesis, date:state.date, dateISO:state.dateISO, faculty:state.faculty, uni:uniFull(), batch:state.batch, phone:state.phone };
     const res=await fetch(RECEIVER_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
     const j=await res.json(); if(!j.ok) throw new Error(j.error||"failed");
     sent=true; btn.textContent="تم الإرسال ✓"; sendStatus("وصلت بطاقتك، شكراً لك. ستُنشر قريباً بإذن الله.","ok");
