@@ -149,7 +149,7 @@ details[open] summary::before{content:"−"}
           <canvas id="crop" width="640" height="640" aria-label="ضبط موضع الصورة"></canvas>
           <div class="zoomrow">
             <button type="button" class="btn small" id="zOut" aria-label="تصغير">−</button>
-            <input type="range" id="zoom" min="1" max="4" step="0.01" value="1" aria-label="تكبير الصورة">
+            <input type="range" id="zoom" min="0.5" max="4" step="0.01" value="1" aria-label="تكبير الصورة">
             <button type="button" class="btn small" id="zIn" aria-label="تكبير">+</button>
           </div>
           <div class="bar">
@@ -372,7 +372,7 @@ document.addEventListener("paste",e=>{
 });
 $("zoom").oninput=e=>{ photo.zoom=+e.target.value; photoChanged(); };
 $("zIn").onclick=()=>{ photo.zoom=Math.min(4,photo.zoom+0.15); photoChanged(); };
-$("zOut").onclick=()=>{ photo.zoom=Math.max(1,photo.zoom-0.15); photoChanged(); };
+$("zOut").onclick=()=>{ photo.zoom=Math.max(ZMIN,photo.zoom-0.15); photoChanged(); };
 $("resetPhoto").onclick=()=>{ photo.zoom=1; photo.ox=0; photo.oy=0; photoChanged(); };
 
 // logo
@@ -400,11 +400,31 @@ function setStatus(t,kind){ const st=$("status"); st.textContent=t; st.className
 
 // ---------- photo position: shared by the crop editor and the poster ----------
 // photo.ox / photo.oy are offsets in units of the photo frame, so they mean the same thing at any size
+// The photo may now move past its edges (or be zoomed out below 1): any empty part of the
+// frame is filled with a blurred copy of the same photo, so the person can be placed freely.
+const ZMIN=0.5;
 function clampPhoto(){
   const im=photo.img; if(!im) return;
-  photo.zoom=Math.min(4,Math.max(1,photo.zoom));
-  const mx=(Math.max(1,im.width/im.height)*photo.zoom-1)/2, my=(Math.max(1,im.height/im.width)*photo.zoom-1)/2;
+  photo.zoom=Math.min(4,Math.max(ZMIN,photo.zoom));
+  const wr=Math.max(1,im.width/im.height)*photo.zoom, hr=Math.max(1,im.height/im.width)*photo.zoom;
+  const mx=Math.abs(wr-1)/2+0.45, my=Math.abs(hr-1)/2+0.45;
   photo.ox=Math.min(mx,Math.max(-mx,photo.ox)); photo.oy=Math.min(my,Math.max(-my,photo.oy));
+}
+// blurred square background made from the same photo (downscale + upscale works in every browser)
+function blurBg(){
+  const im=photo.img; if(!im) return null;
+  if(photo._blurFor===im) return photo._blur;
+  const S=24, tiny=document.createElement("canvas"); tiny.width=tiny.height=S;
+  const t=tiny.getContext("2d"), k=Math.max(S/im.width,S/im.height)*1.15;
+  t.drawImage(im,(S-im.width*k)/2,(S-im.height*k)/2,im.width*k,im.height*k);
+  let src=tiny;
+  for(const size of [64,192,512]){
+    const cv2=document.createElement("canvas"); cv2.width=cv2.height=size;
+    const g=cv2.getContext("2d"); g.imageSmoothingEnabled=true; g.imageSmoothingQuality="high";
+    g.drawImage(src,0,0,size,size); src=cv2;
+  }
+  const g=src.getContext("2d"); g.fillStyle="rgba(10,16,60,.12)"; g.fillRect(0,0,512,512);
+  photo._blur=src; photo._blurFor=im; return src;
 }
 const CROP=640, CBOX=CROP*0.8;
 const cropCv=$("crop"), cctx=cropCv.getContext("2d");
@@ -417,7 +437,7 @@ function drawCrop(){
   c.globalAlpha=.32; c.drawImage(im,x,y,w,h); c.globalAlpha=1;
   const path=()=>{ c.beginPath(); c.roundRect(-side/2,-side/2,side,side,side*0.144); };
   c.save(); c.translate(mid,mid); c.rotate(Math.PI/4); path(); c.restore();
-  c.save(); c.clip(); c.drawImage(im,x,y,w,h); c.restore();
+  c.save(); c.clip(); const bg=blurBg(); if(bg) c.drawImage(bg,mid-CBOX/2,mid-CBOX/2,CBOX,CBOX); c.drawImage(im,x,y,w,h); c.restore();
   c.save(); c.translate(mid,mid); c.rotate(Math.PI/4); path(); c.lineWidth=7; c.strokeStyle="#fff"; c.stroke(); c.restore();
 }
 let rafId=0;
@@ -656,6 +676,7 @@ function draw(scale=1){
   const box=374*sc; window._box=box;
   if(photo.img){
     const im=photo.img, k=Math.max(box/im.width,box/im.height)*photo.zoom, w=im.width*k, h=im.height*k;
+    const bg=blurBg(); if(bg) c.drawImage(bg,PX-box/2,PY-box/2,box,box);
     c.drawImage(im,PX-w/2+photo.ox*box,PY-h/2+photo.oy*box,w,h);
   } else {
     c.fillStyle="#c9d2f5"; c.fillRect(PX-box/2,PY-box/2,box,box);
