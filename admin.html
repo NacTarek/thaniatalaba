@@ -127,13 +127,12 @@ dialog::backdrop{background:rgba(5,8,35,.7)}
       <div class="tabs" role="group" aria-label="تصفية">
         <button class="tab" data-f="pending" aria-pressed="true">قيد الانتظار <b id="nPending">0</b></button>
         <button class="tab" data-f="done" aria-pressed="false">تم <b id="nDone">0</b></button>
-        <button class="tab" data-f="scheduled" aria-pressed="false">مجدول <b id="nSched">0</b></button>
+        <button class="tab" data-f="scheduled" aria-pressed="false">مجدول في فيسبوك <b id="nSched">0</b></button>
         <button class="tab" data-f="all" aria-pressed="false">الكل <b id="nAll">0</b></button>
       </div>
       <input type="search" class="search" id="q" placeholder="بحث بالاسم أو المؤسسة…" aria-label="بحث">
     </div>
     <p class="msg" id="fbNote" hidden>جدولة فيسبوك غير مفعّلة بعد: املأ FB_PAGE_ID و FB_PAGE_TOKEN في Code.gs.</p>
-    <p class="msg" id="igNote" hidden>إنستغرام غير مفعّل بعد: شغّل setupInstagram وضع IG_USER_ID في Code.gs.</p>
     <div class="grid" id="list"></div>
     <div class="empty" id="empty" hidden>لا توجد طلبات هنا.</div>
   </section>
@@ -141,13 +140,9 @@ dialog::backdrop{background:rgba(5,8,35,.7)}
 
 <dialog id="dlg">
   <form class="dlg" method="dialog" id="schedForm">
-    <h3>جدولة المنشور</h3>
+    <h3>جدولة في فيسبوك</h3>
     <div class="row"><img id="dImg" alt=""><div class="name" id="dName"></div></div>
-    <div class="targets" role="group" aria-label="أين يُنشر">
-      <label class="target" id="tFb"><input type="checkbox" id="dFb" checked>فيسبوك</label>
-      <label class="target" id="tIg"><input type="checkbox" id="dIg" checked>إنستغرام</label>
-    </div>
-    <p class="msg" id="dHint"></p>
+    <p class="msg">يظهر المنشور في Meta Business Suite ← المخطِّط (Planner)، ويمكنك تعديله أو نشره من هناك.</p>
     <label for="dTime">وقت النشر<input type="datetime-local" id="dTime" required></label>
     <label for="dText">نص المنشور<textarea id="dText"></textarea></label>
     <label class="check"><input type="checkbox" id="dDone" checked>ضعه كـ«تم» بعد الجدولة</label>
@@ -170,7 +165,7 @@ const LOGO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAJ0AAABQCAYAAAADUHe8
 
 const $ = id => document.getElementById(id);
 $("logo").src = LOGO;
-let KEY = "", items = [], filter = "pending", fbOn = false, igOn = false, current = null;
+let KEY = "", items = [], filter = "pending", fbOn = false, current = null;
 
 const store = {
   get(){ try { return localStorage.getItem("tahani-admin") || ""; } catch(e){ return ""; } },
@@ -193,7 +188,6 @@ function toast(t, kind){ const el=$("toast"); el.textContent=t; el.className="to
 const ERR = {
   unauthorized: "كلمة السر غير صحيحة.",
   facebook_not_configured: "فيسبوك غير مفعّل بعد في Code.gs.",
-  instagram_not_configured: "إنستغرام غير مفعّل بعد: شغّل setupInstagram وضع IG_USER_ID في Code.gs.",
   time_too_soon: "اختر وقتاً بعد 10 دقائق على الأقل من الآن.",
   time_too_far: "فيسبوك يقبل الجدولة حتى 30 يوماً فقط.",
   not_found: "الطلب غير موجود. حدّث الصفحة.",
@@ -220,7 +214,7 @@ function showApp(on){ $("login").hidden=on; $("app").hidden=!on; $("refresh").hi
 
 async function load(){
   const j = await api("list");
-  items = j.items || []; fbOn = !!j.facebook; igOn = !!j.instagram;
+  items = j.items || []; fbOn = !!j.facebook;
   showApp(true); render();
 }
 
@@ -250,10 +244,10 @@ function render(){
   const q = $("q").value.trim();
   $("nPending").textContent = items.filter(i=>i.status!=="done").length;
   $("nDone").textContent = items.filter(i=>i.status==="done").length;
-  const isSched = i => i.fbStatus==="scheduled" || i.igStatus==="queued" || i.igStatus==="published" || i.igStatus==="failed";
+  const isSched = i => i.fbStatus==="scheduled";
   $("nSched").textContent = items.filter(isSched).length;
   $("nAll").textContent = items.length;
-  $("fbNote").hidden = fbOn; $("igNote").hidden = !fbOn || igOn;
+  $("fbNote").hidden = fbOn;
   const shown = items.filter(i =>
     (filter==="all" || (filter==="done" ? i.status==="done" : filter==="scheduled" ? isSched(i) : i.status!=="done")) &&
     (!q || (i.name+" "+i.uni+" "+i.spec).includes(q)));
@@ -278,9 +272,6 @@ function card(i){
   const chips = el("div","chips");
   chips.append(el("span","chip "+(done?"done":"pending"), done?"تم":"قيد الانتظار"));
   if(i.fbStatus==="scheduled") chips.append(el("span","chip fb","فيسبوك: "+fmt(i.fbScheduledAt)));
-  if(i.igStatus==="queued" || i.igStatus==="publishing") chips.append(el("span","chip ig","إنستغرام: "+fmt(i.igScheduledAt)));
-  if(i.igStatus==="published") chips.append(el("span","chip ig","نُشر على إنستغرام ✓"));
-  if(i.igStatus==="failed"){ const ch=el("span","chip bad","فشل إنستغرام"); ch.title=i.igError||""; chips.append(ch); }
   chips.append(el("span","chip", ago(i.receivedAt)));
   if(i.editedAt) chips.append(el("span","chip","عُدّل"));
   meta.append(chips);
@@ -291,7 +282,7 @@ function card(i){
     SHARE_FILES ? btn("تحضير للنشر", ICON.fb2, "gold wide", b => prepare(i,b)) : composerLink(i),
     btn("نسخ النص", ICON.copy, "", () => copy(i.post)),
     btn("تنزيل البطاقة", ICON.down, "", b => download(i,"poster",b)),
-    btn((i.fbStatus==="scheduled"||i.igStatus) ? "جدولة مرة أخرى" : "جدولة", ICON.fb, "", () => openSchedule(i)),
+    btn(i.fbStatus==="scheduled" ? "جدولة مرة أخرى" : "جدولة", ICON.fb, "", () => openSchedule(i)),
     editLink(i),
     btn(done ? "إرجاع" : "تم", done ? "" : ICON.check, (done ? "ghost" : "ok")+" wide", b => setStatus(i, done?"pending":"done", b))
   );
@@ -299,7 +290,7 @@ function card(i){
   const det = el("details");
   det.append(el("summary",null,"التفاصيل ونص المنشور"));
   const dl = el("dl");
-  [["خطأ إنستغرام",i.igStatus==="failed"?i.igError:""],["الموضوع",i.thesis],["الكلية / المكان",i.faculty],["الدفعة",i.batch],["الهاتف",i.phone],["وصل",fmt(i.receivedAt)]].forEach(([k,v])=>{ if(v){ dl.append(el("dt",null,k), el("dd",null,v)); } });
+  [["الموضوع",i.thesis],["الكلية / المكان",i.faculty],["الدفعة",i.batch],["الهاتف",i.phone],["وصل",fmt(i.receivedAt)]].forEach(([k,v])=>{ if(v){ dl.append(el("dt",null,k), el("dd",null,v)); } });
   det.append(dl, el("div","posttext",i.post));
   const more = el("div","actions"); more.style.marginTop="10px";
   if(i.phone) more.append(btn("نسخ الهاتف", ICON.copy, "", () => copy(i.phone)));
@@ -411,35 +402,21 @@ function openSchedule(i){
   const min = new Date(Date.now()+15*60000), max = new Date(Date.now()+29*86400000);
   $("dTime").min = localInput(min); $("dTime").max = localInput(max);
   $("dText").value = i.post; $("dMsg").textContent=""; $("dMsg").className="msg"; $("dGo").disabled=false;
-  $("dFb").checked = true; $("dIg").checked = igOn; $("dIg").disabled = !igOn; $("tIg").classList.toggle("off", !igOn);
-  $("tIg").title = igOn ? "" : ERR.instagram_not_configured;
-  updateHint();
   $("dlg").showModal();
 }
-function updateHint(){
-  const parts=[];
-  if($("dFb").checked) parts.push("فيسبوك: يظهر في Business Suite ← المخطِّط، ويمكنك تعديله من هناك.");
-  if($("dIg").checked) parts.push("إنستغرام: يُنشر تلقائياً في الوقت المحدد (خلال 5 دقائق)، ويظهر هنا في اللوحة لا في المخطِّط.");
-  $("dHint").textContent = parts.join(" ");
-  $("dGo").disabled = !$("dFb").checked && !$("dIg").checked;
-}
-$("dFb").addEventListener("change", updateHint); $("dIg").addEventListener("change", updateHint);
 $("schedForm").addEventListener("submit", async e => {
   if(e.submitter && e.submitter.value==="cancel") return;
   e.preventDefault();
   const i = current, when = new Date($("dTime").value);
   if(isNaN(when)){ $("dMsg").className="msg err"; $("dMsg").textContent="اختر وقت النشر."; return; }
   $("dGo").disabled=true; $("dMsg").className="msg"; $("dMsg").textContent="جارٍ الجدولة…";
-  const fb=$("dFb").checked, ig=$("dIg").checked && igOn;
   try{
-    const r = await api("schedule",{ id:i.id, time:Math.floor(when.getTime()/1000), text:$("dText").value, fb, ig });
-    if(r.fb){ i.fbStatus="scheduled"; i.fbScheduledAt=r.scheduledAt; }
-    if(r.ig){ i.igStatus="queued"; i.igScheduledAt=r.scheduledAt; i.igError=""; }
+    const r = await api("schedule",{ id:i.id, time:Math.floor(when.getTime()/1000), text:$("dText").value });
+    i.fbStatus="scheduled"; i.fbScheduledAt=r.scheduledAt;
     if($("dDone").checked && i.status!=="done"){ try{ await api("status",{ id:i.id, status:"done" }); i.status="done"; }catch(_){} }
-    $("dlg").close(); render(); toast("جُدول "+[r.fb?"فيسبوك":"",r.ig?"إنستغرام":""].filter(Boolean).join(" و")+": "+fmt(r.scheduledAt),"ok");
+    $("dlg").close(); render(); toast("جُدول على فيسبوك: "+fmt(r.scheduledAt),"ok");
   }catch(err){
-    if(err.fbDone){ i.fbStatus="scheduled"; render(); }
-    $("dMsg").className="msg err"; $("dMsg").textContent=(err.fbDone?"جُدول على فيسبوك، لكن إنستغرام: ":"")+errText(err); $("dGo").disabled=false;
+    $("dMsg").className="msg err"; $("dMsg").textContent=errText(err); $("dGo").disabled=false;
   }
 });
 
