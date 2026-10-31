@@ -111,6 +111,7 @@ dialog::backdrop{background:rgba(5,8,35,.7)}
   <div class="in">
     <img id="logo" alt="">
     <h1>لوحة التهاني</h1>
+    <a class="btn small" href="event.html" id="evLink" hidden>صور الفعاليات</a>
     <button class="btn small" id="refresh" hidden>تحديث</button>
     <button class="btn small ghost" id="logout" hidden>خروج</button>
   </div>
@@ -213,7 +214,7 @@ $("login").addEventListener("submit", async e => {
 $("logout").onclick = () => { store.set(""); KEY=""; items=[]; showApp(false); };
 $("refresh").onclick = async () => { $("refresh").disabled=true; try{ await load(); toast("تم التحديث","ok"); }catch(e){ toast(errText(e),"err"); } $("refresh").disabled=false; };
 
-function showApp(on){ $("login").hidden=on; $("app").hidden=!on; $("refresh").hidden=!on; $("logout").hidden=!on; if(!on){ $("pw").value=""; $("loginMsg").textContent=""; } }
+function showApp(on){ $("evLink").hidden=!on; $("login").hidden=on; $("app").hidden=!on; $("refresh").hidden=!on; $("logout").hidden=!on; if(!on){ $("pw").value=""; $("loginMsg").textContent=""; } }
 
 async function load(){
   const j = await api("list");
