@@ -144,7 +144,7 @@ details[open] summary::before{content:"−"}
           <div class="thumb" id="thumb"></div>
           <div><b id="dropTitle">اضغط لاختيار صورة</b><span>أو اسحبها هنا، أو الصقها بـ Ctrl+V</span></div>
         </div>
-        <input type="file" id="file" accept="image/*" hidden>
+        <input type="file" id="file" accept="image/*,.heic,.heif" hidden>
         <div class="cropper" id="cropWrap" hidden>
           <canvas id="crop" width="640" height="640" aria-label="ضبط موضع الصورة"></canvas>
           <div class="zoomrow">
@@ -353,10 +353,22 @@ $("instType").addEventListener("change",e=>{
 
 // photo
 function setThumb(){ $("thumb").style.backgroundImage = photo.img ? `url("${photo.img.src}")` : ""; }
+/* HEIC/HEIF (iPhone photos): Safari opens them directly; other browsers convert them with heic2any, loaded only when needed */
+const isHeic = f => /\.(heic|heif)$/i.test(f.name || "") || /heic|heif/i.test(f.type || "");
+function loadScript(src){ return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.append(s); }); }
+async function fileToImage(f){
+  try { return await loadImg(URL.createObjectURL(f)); }
+  catch(e) { if (!isHeic(f)) throw e; }
+  if (!window.heic2any) await loadScript("https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js");
+  let out = await window.heic2any({ blob:f, toType:"image/jpeg", quality:0.92 });
+  if (Array.isArray(out)) out = out[0];
+  return await loadImg(URL.createObjectURL(out));
+}
 async function usePhotoFile(f){
-  if(!f || !f.type.startsWith("image/")) return;
+  if(!f || !((f.type||"").startsWith("image/") || isHeic(f))) return;
   try{
-    photo={img:await loadImg(URL.createObjectURL(f)), zoom:1, ox:0, oy:0}; setThumb(); photoChanged();
+    if(isHeic(f)) $("dropTitle").textContent="جارٍ تحويل الصورة…";
+    photo={img:await fileToImage(f), zoom:1, ox:0, oy:0}; setThumb(); photoChanged();
   }catch(e){ setStatus("تعذّر فتح هذه الصورة. جرّب صورة JPG أو PNG.","err"); }
 }
 const drop=$("drop");

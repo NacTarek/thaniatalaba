@@ -94,10 +94,22 @@ canvas#cv.dragging{cursor:grabbing}
         <label for="sub">السطر الثاني <span class="hint">التاريخ والمكان</span><input type="text" id="sub"></label>
         <label class="check" for="showSp"><input type="checkbox" id="showSp" checked>إظهار الرعاة</label>
         <p class="hint" id="spHint">بدون الرعاة يصبح العنوان في الوسط.</p>
-        <div class="row" id="spTools">
-          <button type="button" class="btn small" id="spPick">تغيير صورة الرعاة</button>
-          <button type="button" class="btn small" id="spReset" hidden>الرعاة الأصليون</button>
-          <input type="file" id="spFile" accept="image/*" hidden>
+        <div id="spTools" style="display:grid;gap:10px">
+          <div class="row">
+            <button type="button" class="btn small" id="spPick">تغيير صورة الرعاة</button>
+            <button type="button" class="btn small" id="spReset" hidden>الرعاة الأصليون</button>
+          </div>
+          <input type="file" id="spFile" accept="image/*,.heic,.heif" hidden>
+          <div id="spZoomRow" hidden style="display:grid;gap:6px">
+            <div class="ctl" style="margin:0">
+              <span class="hint">حجم الرعاة</span>
+              <button type="button" class="btn small" id="spOut" aria-label="تصغير الرعاة">−</button>
+              <input type="range" id="spZoom" min="0.5" max="4" step="0.01" value="1" aria-label="حجم صورة الرعاة">
+              <button type="button" class="btn small" id="spIn" aria-label="تكبير الرعاة">+</button>
+            </div>
+            <p class="hint">اسحب داخل مربع الرعاة في المعاينة لتحريكها، أو استعمل العجلة فوقه للتكبير.</p>
+            <button type="button" class="btn small" id="spCenter" style="justify-self:start">توسيط الرعاة</button>
+          </div>
         </div>
       </section>
 
@@ -105,9 +117,9 @@ canvas#cv.dragging{cursor:grabbing}
         <h2>الصور</h2>
         <div class="drop" id="drop" tabindex="0" role="button" aria-label="إضافة صور">
           <b>أضف صور الفعالية</b>
-          <span class="hint">اختر صورة أو عدة صور، أو اسحبها هنا</span>
+          <span class="hint">اختر صورة أو عدة صور (JPG، PNG، HEIC)، أو اسحبها هنا</span>
         </div>
-        <input type="file" id="files" accept="image/*" multiple hidden>
+        <input type="file" id="files" accept="image/*,.heic,.heif" multiple hidden>
         <div class="thumbs" id="thumbs"></div>
         <p class="hint" id="count"></p>
       </section>
@@ -151,12 +163,24 @@ const $ = id => document.getElementById(id);
 const FW = 2048, FH = 1365;                       // size of the design (from the PSD)
 const SP = { x:27, y:1191, w:665, h:136 };        // sponsors box
 const STORE = "tahani-event-v1";
-const DEF = { title:"المخيم التكـويني الترفيهي السنوي - الطبعة 02", sub:"الخميس 10 سبتمبر 2026م - مركب سيدي بنور، الجزائر العاصمة", showSp:true, fmt:"jpg" };
+const DEF = { title:"المخيم التكـويني الترفيهي السنوي - الطبعة 02", sub:"الخميس 10 سبتمبر 2026م - مركب سيدي بنور، الجزائر العاصمة", showSp:true, fmt:"jpg", spZoom:1, spX:0, spY:0 };
 let S = { ...DEF };
 try { S = { ...S, ...(JSON.parse(localStorage.getItem(STORE) || "null") || {}) }; } catch(e){}
 const save = () => { try { localStorage.setItem(STORE, JSON.stringify(S)); } catch(e){} };
 
 const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+/* HEIC/HEIF (iPhone photos): Safari opens them directly; other browsers convert them with heic2any, loaded only when needed */
+const isHeic = f => /\.(heic|heif)$/i.test(f.name || "") || /heic|heif/i.test(f.type || "");
+const isImageFile = f => (f.type || "").startsWith("image/") || isHeic(f);
+function loadScript(src){ return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.append(s); }); }
+async function fileToImage(f){
+  try { return await loadImg(URL.createObjectURL(f)); }
+  catch(e) { if (!isHeic(f)) throw e; }
+  if (!window.heic2any) await loadScript("https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js");
+  let out = await window.heic2any({ blob:f, toType:"image/jpeg", quality:0.92 });
+  if (Array.isArray(out)) out = out[0];
+  return await loadImg(URL.createObjectURL(out));
+}
 let BASE, SPONS, SPONS_DEFAULT, photos = [], cur = -1, ready = false;
 const cv = $("cv"), ctx = cv.getContext("2d");
 $("logo").src = LOGO;
@@ -231,13 +255,33 @@ function draw(c, p, scale){
     fitFont(c, sub, 500, 39.25, 1420, 24); c.fillText(sub, cx, 1294);
   }
 }
+function spGeom(){
+  const pad = 8, k = Math.min((SP.w - 2*pad)/SPONS.width, (SP.h - 2*pad)/SPONS.height) * S.spZoom;
+  const w = SPONS.width*k, h = SPONS.height*k;
+  return { w, h, x: SP.x + (SP.w - w)/2 + S.spX*SP.w, y: SP.y + (SP.h - h)/2 + S.spY*SP.h };
+}
 function drawSponsors(c){
   if (SPONS === SPONS_DEFAULT) { c.drawImage(SPONS, SP.x, SP.y, SP.w, SP.h); return; }
-  // custom sponsors image: white rounded box, image fitted inside
+  // custom sponsors image: white rounded box, image inside (size and position adjustable)
   c.save(); c.beginPath(); c.roundRect(SP.x, SP.y, SP.w, SP.h, 21); c.fillStyle = "#fff"; c.fill(); c.clip();
-  const pad = 10, k = Math.min((SP.w - 2*pad)/SPONS.width, (SP.h - 2*pad)/SPONS.height);
-  const w = SPONS.width*k, h = SPONS.height*k;
-  c.drawImage(SPONS, SP.x + (SP.w - w)/2, SP.y + (SP.h - h)/2, w, h); c.restore();
+  const g = spGeom(); c.drawImage(SPONS, g.x, g.y, g.w, g.h); c.restore();
+}
+// removes the empty white/transparent margins around an uploaded sponsors image, so it starts as large as possible
+function trimImage(img){
+  const W = img.width, H = img.height, c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d"); g.drawImage(img, 0, 0);
+  let d; try { d = g.getImageData(0, 0, W, H).data; } catch(e){ return c; }
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = (y*W + x)*4;
+    if (d[i+3] > 20 && (d[i] < 235 || d[i+1] < 235 || d[i+2] < 235)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  if (x1 < 0) return c;
+  const m = Math.round(Math.max(x1 - x0, y1 - y0) * 0.02);
+  x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(W - 1, x1 + m); y1 = Math.min(H - 1, y1 + m);
+  const o = document.createElement("canvas"); o.width = x1 - x0 + 1; o.height = y1 - y0 + 1;
+  o.getContext("2d").drawImage(c, x0, y0, o.width, o.height, 0, 0, o.width, o.height);
+  return o;
 }
 
 let raf = 0;
@@ -285,18 +329,21 @@ function syncCtl(){
 function changed(){ const p = photos[cur]; if (!p) return; clampP(p); redraw(); refreshThumb(cur); }
 
 async function addFiles(list){
-  const files = [...list].filter(f => f.type.startsWith("image/"));
+  const files = [...list].filter(isImageFile);
   if (!files.length) return;
   setStatus("جارٍ تحميل " + files.length + " صورة…");
+  let failed = 0;
   for (const f of files) {
     try {
-      const img = await loadImg(URL.createObjectURL(f));
+      if (isHeic(f)) setStatus("جارٍ تحويل صورة HEIC…");
+      const img = await fileToImage(f);
       const p = { name: f.name.replace(/\.[^.]+$/, ""), img, zoom:1, ox:0, oy:0 };
       autoFit(p); photos.push(p);
-    } catch(e){}
+    } catch(e){ failed++; }
   }
-  if (cur < 0) cur = 0;
-  refreshAllThumbs(); redraw(); setStatus("");
+  if (cur < 0 && photos.length) cur = 0;
+  refreshAllThumbs(); redraw();
+  setStatus(failed ? "تعذّر فتح " + failed + " صورة. جرّب حفظها بصيغة JPG." : "", failed ? "err" : "");
 }
 $("drop").onclick = () => $("files").click();
 $("drop").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("files").click(); } };
@@ -315,8 +362,23 @@ $("spTools").hidden = !S.showSp;
 let allT = 0; function refreshAllThumbsSoon(){ clearTimeout(allT); allT = setTimeout(refreshAllThumbs, 400); }
 
 $("spPick").onclick = () => $("spFile").click();
-$("spFile").onchange = async e => { const f = e.target.files[0]; if (!f) return; SPONS = await loadImg(URL.createObjectURL(f)); $("spReset").hidden = false; redraw(); refreshAllThumbsSoon(); e.target.value = ""; };
-$("spReset").onclick = () => { SPONS = SPONS_DEFAULT; $("spReset").hidden = true; redraw(); refreshAllThumbsSoon(); };
+const SP_STORE = "tahani-event-sponsors";
+function spChanged(){ S.spZoom = Math.min(4, Math.max(0.5, S.spZoom)); S.spX = Math.max(-0.5, Math.min(0.5, S.spX)); S.spY = Math.max(-0.5, Math.min(0.5, S.spY));
+  $("spZoom").value = S.spZoom; save(); redraw(); refreshAllThumbsSoon(); }
+function spUI(){ const custom = SPONS && SPONS !== SPONS_DEFAULT; $("spReset").hidden = !custom; $("spZoomRow").hidden = !custom; $("spZoom").value = S.spZoom; }
+async function useSponsors(img, remember){
+  SPONS = trimImage(img); S.spZoom = 1; S.spX = 0; S.spY = 0; save(); spUI(); redraw(); refreshAllThumbsSoon();
+  if (remember) { try { localStorage.setItem(SP_STORE, SPONS.toDataURL("image/png")); } catch(e){ try { localStorage.setItem(SP_STORE, SPONS.toDataURL("image/jpeg", 0.9)); } catch(_){} } }
+}
+$("spFile").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try { await useSponsors(await fileToImage(f), true); } catch(err){ setStatus("تعذّر فتح صورة الرعاة.", "err"); }
+};
+$("spReset").onclick = () => { SPONS = SPONS_DEFAULT; try { localStorage.removeItem(SP_STORE); } catch(e){} spUI(); redraw(); refreshAllThumbsSoon(); };
+$("spZoom").oninput = e => { S.spZoom = +e.target.value; spChanged(); };
+$("spIn").onclick = () => { S.spZoom *= 1.1; spChanged(); };
+$("spOut").onclick = () => { S.spZoom /= 1.1; spChanged(); };
+$("spCenter").onclick = () => { S.spX = 0; S.spY = 0; spChanged(); };
 
 $("mCover").onclick = () => { const p = photos[cur]; if (!p) return; p.zoom = 1; p.ox = 0; p.oy = 0; changed(); };
 $("mFit").onclick = () => { const p = photos[cur]; if (!p) return; p.zoom = fitZoom(p); p.ox = 0; p.oy = 0; changed(); };
@@ -330,23 +392,31 @@ $("next").onclick = () => cur < photos.length - 1 && select(cur + 1);
 (() => {
   const pts = new Map(); let drag = null, pinch = null;
   const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  const toDesign = e => { const r = cv.getBoundingClientRect(); return { x:(e.clientX - r.left) * FW / r.width, y:(e.clientY - r.top) * FH / r.height }; };
+  const inSp = e => { if (!S.showSp || !SPONS || SPONS === SPONS_DEFAULT) return false; const q = toDesign(e); return q.x >= SP.x && q.x <= SP.x + SP.w && q.y >= SP.y && q.y <= SP.y + SP.h; };
+  let spDrag = null;
   cv.addEventListener("pointerdown", e => {
+    if (inSp(e)) { spDrag = { x:e.clientX, y:e.clientY, sx:S.spX, sy:S.spY, id:e.pointerId }; try { cv.setPointerCapture(e.pointerId); } catch(_){} cv.classList.add("dragging"); return; }
     const p = photos[cur]; if (!p) return;
     pts.set(e.pointerId, { x:e.clientX, y:e.clientY }); try { cv.setPointerCapture(e.pointerId); } catch(_){} cv.classList.add("dragging");
     if (pts.size === 1) drag = { x:e.clientX, y:e.clientY, ox:p.ox, oy:p.oy };
     if (pts.size === 2) { drag = null; pinch = { d:dist(), z:p.zoom }; }
   });
   cv.addEventListener("pointermove", e => {
+    if (spDrag && e.pointerId === spDrag.id) { const k = FW / cv.clientWidth; S.spX = spDrag.sx + (e.clientX - spDrag.x) * k / SP.w; S.spY = spDrag.sy + (e.clientY - spDrag.y) * k / SP.h; spChanged(); return; }
     if (!pts.has(e.pointerId)) return; const p = photos[cur]; if (!p) return;
     pts.set(e.pointerId, { x:e.clientX, y:e.clientY });
     if (pinch && pts.size >= 2) { p.zoom = pinch.z * dist() / pinch.d; changed(); }
     else if (drag) { const k = FW / cv.clientWidth; p.ox = drag.ox + (e.clientX - drag.x) * k / FW; p.oy = drag.oy + (e.clientY - drag.y) * k / FH; changed(); }
   });
-  const end = e => { pts.delete(e.pointerId); pinch = null;
+  const end = e => { if (spDrag && e.pointerId === spDrag.id) { spDrag = null; cv.classList.remove("dragging"); return; }
+    pts.delete(e.pointerId); pinch = null;
     if (pts.size === 1) { const q = [...pts.values()][0], p = photos[cur]; drag = { x:q.x, y:q.y, ox:p.ox, oy:p.oy }; } else drag = null;
     if (!pts.size) cv.classList.remove("dragging"); };
   cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
-  cv.addEventListener("wheel", e => { const p = photos[cur]; if (!p) return; e.preventDefault(); p.zoom *= e.deltaY < 0 ? 1.05 : 0.95; changed(); }, { passive:false });
+  cv.addEventListener("wheel", e => {
+    if (inSp(e)) { e.preventDefault(); S.spZoom *= e.deltaY < 0 ? 1.05 : 0.95; spChanged(); return; }
+    const p = photos[cur]; if (!p) return; e.preventDefault(); p.zoom *= e.deltaY < 0 ? 1.05 : 0.95; changed(); }, { passive:false });
 })();
 
 /* ---------- export ---------- */
@@ -383,6 +453,8 @@ $("dlAll").onclick = async () => {
 /* ---------- start ---------- */
 (async () => {
   try { [BASE, SPONS] = await Promise.all([loadImg(BASE_SRC), loadImg(SPONS_SRC)]); SPONS_DEFAULT = SPONS; } catch(e){}
+  try { const saved = localStorage.getItem(SP_STORE); if (saved) SPONS = await loadImg(saved); } catch(e){}
+  spUI();
   try { await Promise.all([500, 700].map(w => document.fonts.load(`${w} 40px "Expo Arabic"`, "أبج"))); } catch(e){}
   ready = true; renderThumbs(); redraw();
 })();
