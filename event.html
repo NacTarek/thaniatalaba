@@ -89,11 +89,23 @@ canvas#cv.dragging{cursor:grabbing}
   <div class="grid">
     <div class="col">
       <section class="card">
-        <h2>نص الفعالية</h2>
-        <label for="title">العنوان<input type="text" id="title"></label>
-        <label for="sub">السطر الثاني <span class="hint">التاريخ والمكان (اختياري)</span><input type="text" id="sub"></label>
+        <h2>التصميم والنص</h2>
+        <div class="seg" role="group" aria-label="التصميم" style="justify-self:start">
+          <button type="button" id="stClassic" aria-pressed="true">الكلاسيكي</button>
+          <button type="button" id="stCard" aria-pressed="false">البطاقة</button>
+        </div>
+        <div id="classicFields" style="display:grid;gap:12px">
+          <label for="title">العنوان<input type="text" id="title"></label>
+          <label for="sub">السطر الثاني <span class="hint">التاريخ والمكان (اختياري)</span><input type="text" id="sub"></label>
+        </div>
+        <div id="cardFields" style="display:grid;gap:12px" hidden>
+          <label for="cTitle">العنوان<input type="text" id="cTitle"></label>
+          <label for="cGold">السطر الذهبي <span class="hint">مثل: الطبعة 02 (اختياري)</span><input type="text" id="cGold"></label>
+          <label for="cDate">التاريخ <span class="hint">اختياري</span><input type="text" id="cDate"></label>
+          <label for="cPlace">المكان <span class="hint">اختياري</span><input type="text" id="cPlace"></label>
+        </div>
         <label class="check" for="showSp"><input type="checkbox" id="showSp" checked>إظهار الرعاة</label>
-        <p class="hint" id="spHint">بدون الرعاة يصبح الشعار والعنوان في الوسط. وإن تركت السطر الثاني فارغاً يكبر العنوان.</p>
+        <p class="hint" id="spHint">بدون الرعاة يصبح الشعار والعنوان في الوسط.</p>
         <div id="spTools" style="display:grid;gap:10px">
           <div class="row">
             <button type="button" class="btn small" id="spPick">تغيير صورة الرعاة</button>
@@ -162,9 +174,12 @@ const LOGO_W_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAOAAAABqCAYAAA
 
 const $ = id => document.getElementById(id);
 const FW = 2048, FH = 1365;                       // size of the design (from the PSD)
-const SP = { x:27, y:1191, w:665, h:136 };        // sponsors box
+const SP_CLASSIC = { x:27, y:1191, w:665, h:136 };   // sponsors box (classic design, from the PSD)
+const SP_CARD = { x:48, y:1185, w:640, h:120 };       // sponsors box (card design)
+const spBox = () => S.style === "card" ? SP_CARD : SP_CLASSIC;
 const STORE = "tahani-event-v1";
-const DEF = { title:"المخيم التكـويني الترفيهي السنوي - الطبعة 02", sub:"الخميس 10 سبتمبر 2026م - مركب سيدي بنور، الجزائر العاصمة", showSp:true, fmt:"jpg", spZoom:1, spX:0, spY:0 };
+const DEF = { title:"المخيم التكـويني الترفيهي السنوي - الطبعة 02", sub:"الخميس 10 سبتمبر 2026م - مركب سيدي بنور، الجزائر العاصمة", showSp:true, fmt:"jpg", spZoom:1, spX:0, spY:0,
+  style:"classic", cTitle:"المخيم التكـويني الترفيهي السنوي", cGold:"الطبعة 02", cDate:"الخميس 10 سبتمبر 2026م", cPlace:"مركب سيدي بنور، الجزائر العاصمة" };
 let S = { ...DEF };
 try { S = { ...S, ...(JSON.parse(localStorage.getItem(STORE) || "null") || {}) }; } catch(e){}
 const save = () => { try { localStorage.setItem(STORE, JSON.stringify(S)); } catch(e){} };
@@ -239,14 +254,89 @@ function draw(c, p, scale){
     if (!covers(p)) c.drawImage(blurOf(p), 0, 0, FW, FH);
     const g = geom(p); c.drawImage(p.img, g.x, g.y, g.w, g.h);
   }
+  c.direction = "rtl"; c.textBaseline = "alphabetic";
+  if (S.style === "card") { drawCardDesign(c); return; }
   if (BASE) c.drawImage(BASE, 0, 0, FW, FH);
-
-  c.direction = "rtl"; c.textBaseline = "alphabetic"; c.fillStyle = "#ffffff";
+  c.fillStyle = "#ffffff";
   if (S.showSp) {
     if (SPONS) drawSponsors(c);
     c.font = FONT(500, 25); c.textAlign = "right"; c.fillText("برعاية:", 686, 1175);
   }
   drawBand(c);
+}
+
+/* ---------- design B: "floating card" ----------
+   The photo stays clean; logo, title, gold line, date and place sit in a blue card with a gold edge.
+   With sponsors: card on the right, sponsors in a white box on the left (same bottom line).
+   Without sponsors: the card is centred. Every text is optional and the card resizes to fit. */
+const GOLD = "#d8ad6d", GOLD_HI = "#f0cf92";
+function icon(c, kind, cx, cy, s){
+  c.save(); c.strokeStyle = GOLD; c.lineWidth = s * 0.1; c.lineCap = "round"; c.lineJoin = "round";
+  if (kind === "cal") {
+    c.beginPath(); c.roundRect(cx - s/2, cy - s*0.4, s, s*0.85, s*0.15); c.stroke();
+    c.beginPath(); c.moveTo(cx - s/2, cy - s*0.12); c.lineTo(cx + s/2, cy - s*0.12);
+    c.moveTo(cx - s*0.22, cy - s*0.55); c.lineTo(cx - s*0.22, cy - s*0.3); c.moveTo(cx + s*0.22, cy - s*0.55); c.lineTo(cx + s*0.22, cy - s*0.3); c.stroke();
+  } else {
+    c.beginPath(); c.moveTo(cx, cy + s*0.55); c.bezierCurveTo(cx - s*0.5, cy, cx - s*0.45, cy - s*0.5, cx, cy - s*0.5);
+    c.bezierCurveTo(cx + s*0.45, cy - s*0.5, cx + s*0.5, cy, cx, cy + s*0.55); c.stroke();
+    c.beginPath(); c.arc(cx, cy - s*0.1, s*0.15, 0, Math.PI*2); c.stroke();
+  }
+  c.restore();
+}
+function drawCardDesign(c){
+  // soft shade at the bottom so the card and sponsors sit well on any photo
+  const gr = c.createLinearGradient(0, 900, 0, FH); gr.addColorStop(0, "rgba(12,18,64,0)"); gr.addColorStop(1, "rgba(12,18,64,.55)");
+  c.fillStyle = gr; c.fillRect(0, 900, FW, FH - 900);
+
+  const title = (S.cTitle || "").trim(), gold = (S.cGold || "").trim(), date = (S.cDate || "").trim(), place = (S.cPlace || "").trim();
+  const hasMeta = !!(date || place), PAD = 40, LW = 190, LH = 90, TOP = 34, BOTTOM = 1305;
+  const maxCardW = S.showSp ? 2000 - 720 : 1900;
+  const logoBlock = LW + 22 + 1 + 22;                 // logo + gap + divider + gap
+  const maxText = maxCardW - 2*PAD - logoBlock;
+  c.textAlign = "right";
+  // a single line (title or gold alone) is drawn larger
+  const tS = title ? fitFont(c, title, 700, gold ? 36 : 44, maxText, 24) : 36, tW = title ? c.measureText(title).width : 0;
+  const gS = gold ? fitFont(c, gold, 500, title ? 30 : 36, maxText, 20) : 30, gW = gold ? c.measureText(gold).width : 0;
+  // meta row: [cal] date  ◆  [pin] place
+  const mS = 27; c.font = FONT(500, mS);
+  const dW = date ? c.measureText(date).width : 0, pW = place ? c.measureText(place).width : 0;
+  const metaW = (date ? mS*1.25 + dW : 0) + (date && place ? mS*1.8 : 0) + (place ? mS*1.25 + pW : 0);
+  const cw = Math.min(maxCardW, Math.max(logoBlock + Math.max(tW, gW, 120), metaW) + 2*PAD);
+  const ch = TOP + LH + (hasMeta ? 96 : 34);
+  const right = S.showSp ? 2000 : (FW + cw) / 2, x = right - cw, y = BOTTOM - ch;
+
+  c.save(); c.shadowColor = "rgba(5,10,50,.45)"; c.shadowBlur = 40; c.shadowOffsetY = 12;
+  c.fillStyle = "rgba(38,80,201,.94)"; c.beginPath(); c.roundRect(x, y, cw, ch, 26); c.fill(); c.restore();
+  c.fillStyle = GOLD; c.beginPath(); c.roundRect(x + 40, y, cw - 80, 5, 3); c.fill();
+  if (LOGO_W) c.drawImage(LOGO_W, right - PAD - LW, y + TOP, LW, LH);
+  c.fillStyle = "rgba(255,255,255,.35)"; c.fillRect(right - PAD - LW - 22, y + TOP, 1.5, LH);
+
+  const tx = right - PAD - logoBlock, midY = y + TOP + LH / 2;
+  c.fillStyle = "#fff";
+  if (title && gold) {
+    c.font = FONT(700, tS); c.fillText(title, tx, y + 72);
+    c.font = FONT(500, gS); c.fillStyle = GOLD_HI; c.fillText(gold, tx, y + 116);
+  } else if (title || gold) {
+    const t = title || gold, s = title ? tS : gS;
+    c.font = FONT(title ? 700 : 500, s); const m = c.measureText(t);
+    c.fillStyle = title ? "#fff" : GOLD_HI;
+    c.fillText(t, tx, midY + ((m.actualBoundingBoxAscent || s*.8) - (m.actualBoundingBoxDescent || s*.48)) / 2);
+  }
+  if (hasMeta) {
+    c.fillStyle = "rgba(255,255,255,.18)"; c.fillRect(x + 40, y + TOP + LH + 24, cw - 80, 1.2);
+    const my = y + TOP + LH + 60; let mx = right - 44;
+    c.font = FONT(500, mS); c.textBaseline = "middle"; c.fillStyle = "#fff";
+    if (date) { icon(c, "cal", mx - mS*0.45, my, mS*0.8); mx -= mS*1.25; c.fillText(date, mx, my); mx -= dW; }
+    if (date && place) { mx -= mS*0.9; c.fillStyle = GOLD; c.save(); c.translate(mx, my); c.rotate(Math.PI/4); c.fillRect(-mS*0.12, -mS*0.12, mS*0.24, mS*0.24); c.restore(); mx -= mS*0.9; c.fillStyle = "#fff"; }
+    if (place) { icon(c, "pin", mx - mS*0.45, my, mS*0.8); mx -= mS*1.25; c.fillText(place, mx, my); }
+    c.textBaseline = "alphabetic";
+  }
+  if (S.showSp && SPONS) {
+    const b = SP_CARD;
+    c.save(); c.shadowColor = "rgba(5,10,50,.35)"; c.shadowBlur = 30; c.fillStyle = "#fff"; c.beginPath(); c.roundRect(b.x, b.y, b.w, b.h, 20); c.fill(); c.restore();
+    drawSponsors(c);
+    c.font = FONT(600, 22); c.fillStyle = "#fff"; c.textAlign = "right"; c.fillText("برعاية", b.x + b.w - 4, b.y - 15);
+  }
 }
 
 /* Logo + divider + title block.
@@ -281,12 +371,18 @@ function drawBand(c){
   if (LOGO_W) c.drawImage(LOGO_W, logoX, LOGO_BOX.y, LOGO_BOX.w, LOGO_BOX.h);
 }
 function spGeom(){
+  const SP = spBox();
   const pad = 8, k = Math.min((SP.w - 2*pad)/SPONS.width, (SP.h - 2*pad)/SPONS.height) * S.spZoom;
   const w = SPONS.width*k, h = SPONS.height*k;
   return { w, h, x: SP.x + (SP.w - w)/2 + S.spX*SP.w, y: SP.y + (SP.h - h)/2 + S.spY*SP.h };
 }
 function drawSponsors(c){
-  if (SPONS === SPONS_DEFAULT) { c.drawImage(SPONS, SP.x, SP.y, SP.w, SP.h); return; }
+  const SP = spBox();
+  if (SPONS === SPONS_DEFAULT) {
+    if (S.style === "card") c.drawImage(SPONS, SP.x + 4, SP.y + 3, SP.w - 8, SP.h - 6);
+    else c.drawImage(SPONS, SP.x, SP.y, SP.w, SP.h);
+    return;
+  }
   // custom sponsors image: white rounded box, image inside (size and position adjustable)
   c.save(); c.beginPath(); c.roundRect(SP.x, SP.y, SP.w, SP.h, 21); c.fillStyle = "#fff"; c.fill(); c.clip();
   const g = spGeom(); c.drawImage(SPONS, g.x, g.y, g.w, g.h); c.restore();
@@ -381,6 +477,16 @@ document.addEventListener("paste", e => { const fs = [...(e.clipboardData?.files
 $("title").value = S.title; $("sub").value = S.sub; $("showSp").checked = S.showSp; $("fmt").value = S.fmt;
 $("title").oninput = e => { S.title = e.target.value; save(); redraw(); refreshAllThumbsSoon(); };
 $("sub").oninput = e => { S.sub = e.target.value; save(); redraw(); refreshAllThumbsSoon(); };
+["cTitle","cGold","cDate","cPlace"].forEach(k => { $(k).value = S[k] || ""; $(k).oninput = e => { S[k] = e.target.value; save(); redraw(); refreshAllThumbsSoon(); }; });
+function applyStyle(){
+  const card = S.style === "card";
+  $("stClassic").setAttribute("aria-pressed", !card); $("stCard").setAttribute("aria-pressed", card);
+  $("classicFields").hidden = card; $("cardFields").hidden = !card;
+  $("spHint").textContent = card ? "بدون الرعاة تصبح البطاقة في الوسط." : "بدون الرعاة يصبح الشعار والعنوان في الوسط. وإن تركت السطر الثاني فارغاً يكبر العنوان.";
+}
+$("stClassic").onclick = () => { S.style = "classic"; save(); applyStyle(); redraw(); refreshAllThumbsSoon(); };
+$("stCard").onclick = () => { S.style = "card"; save(); applyStyle(); redraw(); refreshAllThumbsSoon(); };
+applyStyle();
 $("showSp").onchange = e => { S.showSp = e.target.checked; save(); $("spTools").hidden = !S.showSp; redraw(); refreshAllThumbsSoon(); };
 $("fmt").onchange = e => { S.fmt = e.target.value; save(); };
 $("spTools").hidden = !S.showSp;
@@ -418,7 +524,7 @@ $("next").onclick = () => cur < photos.length - 1 && select(cur + 1);
   const pts = new Map(); let drag = null, pinch = null;
   const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
   const toDesign = e => { const r = cv.getBoundingClientRect(); return { x:(e.clientX - r.left) * FW / r.width, y:(e.clientY - r.top) * FH / r.height }; };
-  const inSp = e => { if (!S.showSp || !SPONS || SPONS === SPONS_DEFAULT) return false; const q = toDesign(e); return q.x >= SP.x && q.x <= SP.x + SP.w && q.y >= SP.y && q.y <= SP.y + SP.h; };
+  const inSp = e => { if (!S.showSp || !SPONS || SPONS === SPONS_DEFAULT) return false; const q = toDesign(e), SP = spBox(); return q.x >= SP.x && q.x <= SP.x + SP.w && q.y >= SP.y && q.y <= SP.y + SP.h; };
   let spDrag = null;
   cv.addEventListener("pointerdown", e => {
     if (inSp(e)) { spDrag = { x:e.clientX, y:e.clientY, sx:S.spX, sy:S.spY, id:e.pointerId }; try { cv.setPointerCapture(e.pointerId); } catch(_){} cv.classList.add("dragging"); return; }
@@ -428,7 +534,7 @@ $("next").onclick = () => cur < photos.length - 1 && select(cur + 1);
     if (pts.size === 2) { drag = null; pinch = { d:dist(), z:p.zoom }; }
   });
   cv.addEventListener("pointermove", e => {
-    if (spDrag && e.pointerId === spDrag.id) { const k = FW / cv.clientWidth; S.spX = spDrag.sx + (e.clientX - spDrag.x) * k / SP.w; S.spY = spDrag.sy + (e.clientY - spDrag.y) * k / SP.h; spChanged(); return; }
+    if (spDrag && e.pointerId === spDrag.id) { const k = FW / cv.clientWidth, SP = spBox(); S.spX = spDrag.sx + (e.clientX - spDrag.x) * k / SP.w; S.spY = spDrag.sy + (e.clientY - spDrag.y) * k / SP.h; spChanged(); return; }
     if (!pts.has(e.pointerId)) return; const p = photos[cur]; if (!p) return;
     pts.set(e.pointerId, { x:e.clientX, y:e.clientY });
     if (pinch && pts.size >= 2) { p.zoom = pinch.z * dist() / pinch.d; changed(); }
@@ -452,7 +558,8 @@ async function render(p){
   return await new Promise(r => c.toBlob(r, png ? "image/png" : "image/jpeg", png ? undefined : 0.95));
 }
 const safeName = t => (t || "فعالية").replace(/[\\/:*?"<>|]/g, "").trim().slice(0, 60) || "فعالية";
-const fileName = i => safeName(S.title) + " - " + String(i + 1).padStart(2, "0") + (S.fmt === "png" ? ".png" : ".jpg");
+const nameTitle = () => S.style === "card" ? [S.cTitle, S.cGold].filter(Boolean).join(" - ") : S.title;
+const fileName = i => safeName(nameTitle()) + " - " + String(i + 1).padStart(2, "0") + (S.fmt === "png" ? ".png" : ".jpg");
 function saveBlob(blob, name){
   const url = URL.createObjectURL(blob), a = document.createElement("a"); a.href = url; a.download = name;
   document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 8000);
@@ -468,7 +575,7 @@ $("dlAll").onclick = async () => {
       const zip = new JSZip();
       for (let i = 0; i < photos.length; i++) { setStatus("جارٍ تجهيز " + (i + 1) + " من " + photos.length + "…"); zip.file(fileName(i), await render(photos[i])); }
       setStatus("جارٍ ضغط الملف…");
-      saveBlob(await zip.generateAsync({ type:"blob" }), safeName(S.title) + ".zip");
+      saveBlob(await zip.generateAsync({ type:"blob" }), safeName(nameTitle()) + ".zip");
     }
     setStatus("تم تنزيل " + photos.length + (photos.length === 1 ? " صورة." : " صور."), "ok");
   } catch(e) { setStatus("تعذّر التجهيز. جرّب عدداً أقل من الصور.", "err"); }
