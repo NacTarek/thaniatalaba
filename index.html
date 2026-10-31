@@ -380,7 +380,10 @@ $("pickLogo").onclick=()=>$("logoFile").click();
 $("logoFile").onchange=async e=>{ const f=e.target.files[0]; if(!f) return; logoImg=await loadImg(URL.createObjectURL(f)); draw(); e.target.value=""; };
 
 // date picker -> "26 أكتوبر 2026"
-const MONTHS=["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
+// Algerian month names; dates typed with Middle-Eastern names are converted automatically
+const MONTHS=["جانفي","فيفري","مارس","أفريل","ماي","جوان","جويلية","أوت","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
+const MONTH_DZ=[[/يناير/g,"جانفي"],[/فبراير/g,"فيفري"],[/[أإا]بريل/g,"أفريل"],[/مايو/g,"ماي"],[/يونيو|يونيه/g,"جوان"],[/يوليو|يوليه/g,"جويلية"],[/[أا]غسطس/g,"أوت"]];
+function dateDZ(t){ let s=String(t||""); MONTH_DZ.forEach(([re,v])=>s=s.replace(re,v)); return s; }
 $("datePick").addEventListener("change",e=>{
   const v=e.target.value; if(!v) return;
   const [y,m,d]=v.split("-").map(Number);
@@ -721,7 +724,7 @@ function draw(scale=1){
   y+=bh+29;
   }
   drawRuns([
-    {icon:"cal"},{space:12},{t:state.date||"تاريخ المناقشة", font:F(500,22), color:C.white},
+    {icon:"cal"},{space:12},{t:dateDZ(state.date)||"تاريخ المناقشة", font:F(500,22), color:C.white},
     {space:26},{diamond:true,space:8},{space:26},
     {icon:"pin"},{space:12},{t:uniFull()||"الجامعة", font:F(500,22), color:C.white}
   ],540,y);
@@ -792,7 +795,7 @@ $("send").onclick=async()=>{
   const btn=$("send"); btn.disabled=true; btn.textContent="جارٍ الإرسال…"; sendStatus("لا تغلق الصفحة حتى تظهر رسالة التأكيد.");
   try{
     const payload={ poster:await blobToB64(await posterBlob("image/png")), posterType:"image/png", thumb:thumbB64(), photo:photoB64(),
-      name:state.name, degree:state.degree, spec:state.spec, thesis:state.noThesis?"":state.thesis, noThesis:!!state.noThesis, date:state.date, dateISO:state.dateISO, faculty:state.faculty, uni:uniFull(), batch:state.batch, phone:state.phone, crop:{ z:+photo.zoom.toFixed(3), x:+photo.ox.toFixed(4), y:+photo.oy.toFixed(4) } };
+      name:state.name, degree:state.degree, spec:state.spec, thesis:state.noThesis?"":state.thesis, noThesis:!!state.noThesis, date:dateDZ(state.date), dateISO:state.dateISO, faculty:state.faculty, uni:uniFull(), batch:state.batch, phone:state.phone, crop:{ z:+photo.zoom.toFixed(3), x:+photo.ox.toFixed(4), y:+photo.oy.toFixed(4) } };
     const res=await fetch(RECEIVER_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
     const j=await res.json(); if(!j.ok) throw new Error(j.error||"failed");
     sent=true; btn.textContent="تم الإرسال ✓"; sendStatus("وصلت بطاقتك، شكراً لك. ستُنشر قريباً بإذن الله.","ok");
@@ -853,7 +856,7 @@ $("saveEdit").onclick=async()=>{
   try{
     await adminApi("update",{ id:EDIT_ID,
       fields:{ name:state.name, degree:state.degree, spec:state.spec, thesis:state.noThesis?"":state.thesis, noThesis:!!state.noThesis,
-        date:state.date, dateISO:state.dateISO, faculty:state.faculty, uni:uniFull(), batch:state.batch, phone:state.phone },
+        date:dateDZ(state.date), dateISO:state.dateISO, faculty:state.faculty, uni:uniFull(), batch:state.batch, phone:state.phone },
       crop:{ z:+photo.zoom.toFixed(3), x:+photo.ox.toFixed(4), y:+photo.oy.toFixed(4) },
       poster: await blobToB64(await posterBlob("image/png")), thumb: thumbB64() });
     b.textContent="تم الحفظ ✓"; editStatus("حُفظت التعديلات. إن كان المنشور مجدولاً من قبل، أعد جدولته ليأخذ البطاقة الجديدة.","ok");
