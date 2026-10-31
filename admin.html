@@ -238,6 +238,7 @@ const ICON = {
   down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>',
   fb:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>',
   fb2:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7M21 3l-9 9M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/></svg>',
+  edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>'
 };
 const fmt = iso => { if(!iso) return ""; const d=new Date(iso); if(isNaN(d)) return iso;
@@ -281,6 +282,7 @@ function card(i){
   if(i.igStatus==="published") chips.append(el("span","chip ig","نُشر على إنستغرام ✓"));
   if(i.igStatus==="failed"){ const ch=el("span","chip bad","فشل إنستغرام"); ch.title=i.igError||""; chips.append(ch); }
   chips.append(el("span","chip", ago(i.receivedAt)));
+  if(i.editedAt) chips.append(el("span","chip","عُدّل"));
   meta.append(chips);
   head.append(img, meta);
 
@@ -290,7 +292,8 @@ function card(i){
     btn("نسخ النص", ICON.copy, "", () => copy(i.post)),
     btn("تنزيل البطاقة", ICON.down, "", b => download(i,"poster",b)),
     btn((i.fbStatus==="scheduled"||i.igStatus) ? "جدولة مرة أخرى" : "جدولة", ICON.fb, "", () => openSchedule(i)),
-    btn(done ? "إرجاع" : "تم", done ? "" : ICON.check, done ? "ghost" : "ok", b => setStatus(i, done?"pending":"done", b))
+    editLink(i),
+    btn(done ? "إرجاع" : "تم", done ? "" : ICON.check, (done ? "ghost" : "ok")+" wide", b => setStatus(i, done?"pending":"done", b))
   );
 
   const det = el("details");
@@ -347,6 +350,12 @@ async function download(i, kind, b){
 const IS_TOUCH = (() => { try { return matchMedia("(pointer:coarse)").matches && navigator.maxTouchPoints > 0; } catch(e){ return false; } })();
 const SHARE_FILES = IS_TOUCH && (() => { try { return !!(navigator.canShare && navigator.canShare({ files:[new File(["x"],"a.png",{type:"image/png"})] })); } catch(e){ return false; } })();
 const COMPOSER = "https://business.facebook.com/latest/composer";
+
+// Edit: opens the poster maker with this request loaded (same site, uses the saved login)
+function editLink(i){
+  const a = el("a","btn small"); a.href = "index.html?edit=" + encodeURIComponent(i.id);
+  a.innerHTML = ICON.edit; a.append("تعديل"); return a;
+}
 
 // Computer: a real link opens the editor (browsers never block a link the user clicks),
 // and the same click copies the text and downloads the poster.

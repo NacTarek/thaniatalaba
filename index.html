@@ -124,6 +124,7 @@ details[open] summary::before{content:"−"}
       <h1>بطاقة تهنئة الخريج</h1>
       <small>املأ بياناتك وارفع صورتك، ثم أرسل البطاقة</small>
     </div>
+    <button type="button" class="btn gold" id="saveTop" hidden>حفظ التعديلات</button>
     <button type="button" class="btn" id="dl" hidden>تنزيل نسخة</button>
   </div>
 </header>
@@ -208,6 +209,13 @@ details[open] summary::before{content:"−"}
         <button type="button" class="btn gold big" id="send">إرسال البطاقة</button>
         <p class="status" id="sendStatus">راجع البطاقة في المعاينة، ثم اضغط إرسال.</p>
       </section>
+      <section class="card" id="editCard" hidden>
+        <h2>تعديل الطلب</h2>
+        <p class="hint" id="editInfo">جارٍ تحميل الطلب…</p>
+        <button type="button" class="btn gold big" id="saveEdit" disabled>حفظ التعديلات</button>
+        <p class="status" id="editStatus"></p>
+        <a class="btn" id="backLink" href="admin.html" style="text-decoration:none">رجوع إلى اللوحة</a>
+      </section>
       <section class="card" id="adminCard" hidden>
         <h2>أدوات المشرف</h2>
         <div class="bar">
@@ -283,7 +291,8 @@ let logoImg = null;
 let titleTouched = false;
 let ready = false;
 
-try { const s = JSON.parse(localStorage.getItem(KEY)||"null"); if (s) { state = {...state, ...s.fields}; titleTouched = !!s.titleTouched; } } catch(e){}
+const EDIT_ID = (() => { try { return new URLSearchParams(location.search).get("edit") || ""; } catch(e){ return ""; } })();
+if (!EDIT_ID) try { const s = JSON.parse(localStorage.getItem(KEY)||"null"); if (s) { state = {...state, ...s.fields}; titleTouched = !!s.titleTouched; } } catch(e){}
 
 const $ = id => document.getElementById(id);
 const cv = $("cv"); let ctx = cv.getContext("2d");
@@ -291,7 +300,7 @@ const W = 1080, H = 1080;
 
 const ADMIN = /[?&]admin\b/.test(location.search) || location.hash==="#admin";
 if(!ADMIN){ state.org=DEFAULTS.org; state.closing=DEFAULTS.closing; }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify({fields:state,titleTouched})) }catch(e){} }
+function save(){ if(EDIT_ID) return; try{ localStorage.setItem(KEY, JSON.stringify({fields:state,titleTouched})) }catch(e){} }
 
 function loadImg(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
 
@@ -762,7 +771,7 @@ $("send").onclick=async()=>{
   const btn=$("send"); btn.disabled=true; btn.textContent="جارٍ الإرسال…"; sendStatus("لا تغلق الصفحة حتى تظهر رسالة التأكيد.");
   try{
     const payload={ poster:await blobToB64(await posterBlob("image/png")), posterType:"image/png", thumb:thumbB64(), photo:photoB64(),
-      name:state.name, degree:state.degree, spec:state.spec, thesis:state.noThesis?"":state.thesis, noThesis:!!state.noThesis, date:state.date, dateISO:state.dateISO, faculty:state.faculty, uni:uniFull(), batch:state.batch, phone:state.phone };
+      name:state.name, degree:state.degree, spec:state.spec, thesis:state.noThesis?"":state.thesis, noThesis:!!state.noThesis, date:state.date, dateISO:state.dateISO, faculty:state.faculty, uni:uniFull(), batch:state.batch, phone:state.phone, crop:{ z:+photo.zoom.toFixed(3), x:+photo.ox.toFixed(4), y:+photo.oy.toFixed(4) } };
     const res=await fetch(RECEIVER_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
     const j=await res.json(); if(!j.ok) throw new Error(j.error||"failed");
     sent=true; btn.textContent="تم الإرسال ✓"; sendStatus("وصلت بطاقتك، شكراً لك. ستُنشر قريباً بإذن الله.","ok");
@@ -771,6 +780,66 @@ $("send").onclick=async()=>{
   }
 };
 
+// ---------- admin edit mode: index.html?edit=ID (opened from the dashboard) ----------
+const ADMIN_KEY = (() => { try { return localStorage.getItem("tahani-admin") || ""; } catch(e){ return ""; } })();
+async function adminApi(action, extra={}){
+  const res = await fetch(RECEIVER_URL,{ method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"}, body:JSON.stringify({ action, key:ADMIN_KEY, ...extra }) });
+  const j = JSON.parse(await res.text()); if(!j.ok){ const e=new Error(j.error||"failed"); e.code=j.error; throw e; } return j;
+}
+function editStatus(t,kind){ const el=$("editStatus"); el.textContent=t; el.className="status"+(kind?" "+kind:""); }
+const INST_WORDS=["جامعة","معهد","المعهد","المدرسة"];
+function fillForm(it){
+  ["name","phone","faculty","spec","thesis","date","batch"].forEach(k=>{ state[k]=it[k]||""; $(k).value=state[k]; });
+  state.dateISO=it.dateISO||"";
+  state.noThesis = it.noThesis==="1";
+  applyNoThesis();
+  // degree
+  if(DEG_PRESETS.includes(it.degree)){ $("degree").value=it.degree; $("degreeOtherWrap").hidden=true; }
+  else { $("degree").value="__other"; $("degreeOther").value=it.degree||""; $("degreeOtherWrap").hidden=false; }
+  state.degree=it.degree||"الدكتوراه";
+  // institution: split a known prefix ("جامعة سكيكدة" -> جامعة + سكيكدة), otherwise keep the full name
+  const u=String(it.uni||"").trim(), w=INST_WORDS.find(x=>u.startsWith(x+" "));
+  if(w){ state.instType=w; state.instOther=""; state.uni=u.slice(w.length+1); }
+  else { state.instType="__other"; state.instOther=""; state.uni=u; }
+  $("instType").value=state.instType; $("instOther").value=""; $("instOther").hidden=state.instType!=="__other"; $("uni").value=state.uni;
+}
+async function startEdit(){
+  $("sendCard").hidden=true; $("editCard").hidden=false; $("adminCard").hidden=true; $("dl").hidden=false;
+  document.querySelector(".top h1").textContent="تعديل طلب"; document.title="تعديل طلب";
+  const sub=document.querySelector(".top small"); if(sub) sub.textContent="عدّل ما تريد، ثم اضغط «حفظ التعديلات»";
+  $("saveTop").hidden=false;
+  $("saveTop").onclick=()=>{ $("editCard").scrollIntoView({behavior:"smooth",block:"center"}); if(!$("saveEdit").disabled) $("saveEdit").click(); };
+  if(!ADMIN_KEY){ $("editInfo").textContent="سجّل الدخول من لوحة التهاني أولاً، ثم افتح التعديل من هناك."; return; }
+  try{
+    const { item } = await adminApi("get",{ id:EDIT_ID });
+    fillForm(item);
+    $("editInfo").textContent="أنت تعدّل طلب «"+(item.name||"")+"». البطاقة الجديدة ستحلّ محل القديمة.";
+    try{
+      const f = await adminApi("file",{ id:EDIT_ID, kind:"photo" });
+      const bytes=Uint8Array.from(atob(f.data),ch=>ch.charCodeAt(0));
+      photo={ img:await loadImg(URL.createObjectURL(new Blob([bytes],{type:f.mime}))), zoom:1, ox:0, oy:0 };
+      try{ const cr=JSON.parse(item.crop||"null"); if(cr){ photo.zoom=+cr.z||1; photo.ox=+cr.x||0; photo.oy=+cr.y||0; } }catch(_){}
+      setThumb(); photoChanged();
+    }catch(e){ editStatus("لا توجد صورة أصلية لهذا الطلب. ارفع صورة جديدة إن أردت تعديل البطاقة.","err"); }
+    draw(); $("saveEdit").disabled=false;
+  }catch(e){
+    $("editInfo").textContent = e.code==="unauthorized" ? "انتهت جلسة الدخول. سجّل الدخول من اللوحة مرة أخرى." : "تعذّر تحميل الطلب ("+(e.code||"اتصال")+").";
+  }
+}
+$("saveEdit").onclick=async()=>{
+  if(!photo.img){ editStatus("ارفع صورة الخريج أولاً.","err"); return; }
+  const b=$("saveEdit"); b.disabled=true; b.textContent="جارٍ الحفظ…"; editStatus("");
+  try{
+    await adminApi("update",{ id:EDIT_ID,
+      fields:{ name:state.name, degree:state.degree, spec:state.spec, thesis:state.noThesis?"":state.thesis, noThesis:!!state.noThesis,
+        date:state.date, dateISO:state.dateISO, faculty:state.faculty, uni:uniFull(), batch:state.batch, phone:state.phone },
+      crop:{ z:+photo.zoom.toFixed(3), x:+photo.ox.toFixed(4), y:+photo.oy.toFixed(4) },
+      poster: await blobToB64(await posterBlob("image/png")), thumb: thumbB64() });
+    b.textContent="تم الحفظ ✓"; editStatus("حُفظت التعديلات. إن كان المنشور مجدولاً من قبل، أعد جدولته ليأخذ البطاقة الجديدة.","ok");
+  }catch(e){ b.disabled=false; b.textContent="حفظ التعديلات"; editStatus(e.code==="unauthorized"?"انتهت جلسة الدخول. سجّل الدخول من اللوحة.":"تعذّر الحفظ. حاول مرة أخرى.","err"); }
+};
+$("form").addEventListener("input",()=>{ if(EDIT_ID && $("saveEdit").textContent==="تم الحفظ ✓"){ $("saveEdit").disabled=false; $("saveEdit").textContent="حفظ التعديلات"; } });
+
 function renderTo(target,scale){ const keep=ctx; ctx=target; try{ draw(scale); } finally { ctx=keep; draw(1); } }
 
 (async()=>{
@@ -778,6 +847,7 @@ function renderTo(target,scale){ const keep=ctx; ctx=target; try{ draw(scale); }
   ready=true;
   try{ await Promise.all([300,500,600,700].map(w=>document.fonts.load(`${w} 24px "Expo Arabic"`,"أبج"))); }catch(e){}
   draw();
+  if(EDIT_ID) startEdit();
 })();
 </script>
 
