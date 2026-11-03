@@ -134,7 +134,12 @@ details[open] summary::before{content:"−"}
     <form class="col" id="form" autocomplete="off" onsubmit="return false">
       <section class="card">
         <h2>الخريج</h2>
-        <label for="name">الاسم الكامل<input type="text" id="name" placeholder="مثال: أوجانة البشير بن عبد الرحمان"></label>
+        <label for="nameBase">الاسم واللقب<input type="text" id="nameBase" placeholder="مثال: حميد أوجانة"></label>
+        <div class="row">
+          <label for="father">اسم الأب <span class="sub">بدون «بن»</span><input type="text" id="father" placeholder="مثال: خالد"></label>
+          <label for="grand">اسم الجد <span class="sub">بدون «بن»</span><input type="text" id="grand" placeholder="مثال: حميد"></label>
+        </div>
+        <p class="hint" id="namePreview"></p>
         <label for="batch">سنة الدفعة <span class="sub">الرقم داخل الشارة الذهبية أعلى البطاقة</span><input type="text" id="batch" inputmode="numeric" placeholder="2026"></label>
       </section>
 
@@ -205,7 +210,8 @@ details[open] summary::before{content:"−"}
 
       <section class="card" id="sendCard">
         <h2>الإرسال</h2>
-        <label for="phone">رقم الهاتف <span class="sub">للتواصل معك عند الحاجة، ولا يظهر في البطاقة</span><input type="text" id="phone" inputmode="tel" dir="ltr" style="text-align:right" placeholder="05xx xx xx xx"></label>
+        <label for="phone">رقم الهاتف <span class="sub">إجباري، للتواصل معك عند الحاجة، ولا يظهر في البطاقة</span><input type="text" id="phone" inputmode="tel" dir="ltr" style="text-align:right" placeholder="05xx xx xx xx"></label>
+        <input type="text" id="website" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
         <button type="button" class="btn gold big" id="send">إرسال البطاقة</button>
         <p class="status" id="sendStatus">راجع البطاقة في المعاينة، ثم اضغط إرسال.</p>
       </section>
@@ -282,7 +288,14 @@ function uniFull(){
   if(!u) return "";
   return (!t || u.startsWith(t)) ? u : t+" "+u;
 }
-const FIELDS = ["name","phone","faculty","instOther","spec","thesis","date","uni","batch","org","closing"];
+// Full name = «الاسم واللقب» بن «الأب» بن «الجد»  → e.g. حميد أوجانة بن خالد بن حميد
+const stripBen = v => String(v||"").replace(/^\s*(بن|ابن|بنت)\s+/,"").replace(/\s+/g," ").trim();
+function composeName(){
+  const parts=[String(state.nameBase||"").replace(/\s+/g," ").trim(), stripBen(state.father), stripBen(state.grand)];
+  state.name = parts[0] ? parts.filter(Boolean).join(" بن ") : "";
+  const pv=document.getElementById("namePreview"); if(pv) pv.textContent = state.name ? "سيظهر في البطاقة: " + state.name : "";
+}
+const FIELDS = ["nameBase","father","grand","phone","faculty","instOther","spec","thesis","date","uni","batch","org","closing"];
 const KEY = "grad-card-student-v1";
 
 let state = {...DEFAULTS};
@@ -305,13 +318,17 @@ function save(){ if(EDIT_ID) return; try{ localStorage.setItem(KEY, JSON.stringi
 function loadImg(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
 
 // ---------- form wiring ----------
+// older drafts only had a single «name» field
+if(state.name && !state.nameBase && !state.father){ const p=String(state.name).split(/\s+بن\s+/); state.nameBase=p[0]||""; state.father=p[1]||""; state.grand=p.slice(2).join(" بن "); }
 FIELDS.forEach(f=>{
   const el=$(f); el.value=state[f];
   el.addEventListener("input",()=>{
     state[f]=el.value;
+    if(f==="nameBase"||f==="father"||f==="grand") composeName();
     save(); draw();
   });
 });
+composeName();
 state.gender="m";
 const DEG_PRESETS=["الليسانس","الماستر","الدكتوراه"];
 function titleFor(d){ return d==="الدكتوراه" ? "الدكتور الفاضل" : "الأستاذ الفاضل"; }
@@ -405,7 +422,7 @@ $("datePick").addEventListener("change",e=>{
 });
 
 $("next").onclick=()=>{
-  ["name","thesis","spec","phone","faculty"].forEach(f=>{ state[f]=""; $(f).value=""; }); state.dateISO="";
+  ["nameBase","father","grand","thesis","spec","phone","faculty"].forEach(f=>{ state[f]=""; $(f).value=""; }); state.dateISO=""; composeName();
   photo={img:null,zoom:1,ox:0,oy:0}; setThumb(); photoChanged();
   $("fallback").hidden=true;
   save(); draw(); $("name").focus();
@@ -797,22 +814,43 @@ let sent=false;
 function resetSent(){ if(!sent) return; sent=false; $("send").disabled=false; $("send").textContent="إرسال البطاقة"; sendStatus("عدّلت البطاقة. يمكنك إرسالها مرة أخرى."); }
 $("date").addEventListener("input",()=>{ state.dateISO=""; save(); });
 $("form").addEventListener("input",resetSent); $("form").addEventListener("change",resetSent);
+// ---------- anti-spam: phone required, max 3 requests per phone (checked by the receiver) and per device ----------
+const MAX_SENDS = 3, SENT_KEY = "tahani-sent-count";
+const sentCount = () => { try { return +localStorage.getItem(SENT_KEY) || 0; } catch(e){ return 0; } };
+const bumpSent = () => { try { localStorage.setItem(SENT_KEY, String(sentCount() + 1)); } catch(e){} };
+function phoneOk(p){
+  let d = String(p||"").trim().replace(/[^\d+]/g,""); if(d.startsWith("+")) d=d.slice(1); else if(d.startsWith("00")) d=d.slice(2);
+  d = d.replace(/\D/g,""); return /^0[5-7]\d{8}$/.test(d) || /^[5-7]\d{8}$/.test(d) || /^(?!0)\d{11,15}$/.test(d);
+}
+const SEND_ERR = {
+  limit_reached: "لقد أرسلت هذا الرقم 3 طلبات، وهو الحد الأقصى. إن احتجت تعديلاً تواصل مع المؤسسة.",
+  phone_required: "اكتب رقم هاتف صحيحاً، مثل 0555 12 34 56.",
+  busy: "وصلتنا طلبات كثيرة في هذه الساعة. حاول مرة أخرى بعد قليل.",
+  too_large: "الصورة كبيرة جداً. جرّب صورة أصغر."
+};
 $("send").onclick=async()=>{
-  const need=[["name","الاسم"],["degree","الشهادة"],["spec","التخصص"],["thesis","الموضوع"],["date","التاريخ"],["uni","اسم المؤسسة"]].filter(([k])=>!(k==="thesis" && state.noThesis));
+  if(!ADMIN && sentCount() >= MAX_SENDS){ sendStatus("أرسلت "+MAX_SENDS+" طلبات من هذا الجهاز، وهو الحد الأقصى. إن احتجت تعديلاً تواصل مع المؤسسة.","err"); return; }
+  const need=[["nameBase","الاسم واللقب"],...(ADMIN?[]:[["father","اسم الأب"],["grand","اسم الجد"]]),["degree","الشهادة"],["spec","التخصص"],["thesis","الموضوع"],["date","التاريخ"],["uni","اسم المؤسسة"]].filter(([k])=>!(k==="thesis" && state.noThesis));
   const missing=need.filter(([k])=>!String(state[k]||"").trim()).map(([,l])=>l);
   if(!photo.img) missing.splice(1,0,"الصورة");
   if(state.instType==="__other" && !String(state.instOther||"").trim()) missing.push("نوع المؤسسة");
+  if(!ADMIN && !String(state.phone||"").trim()) missing.push("رقم الهاتف");
   if(missing.length){ sendStatus("أكمل قبل الإرسال: "+missing.join("، "),"err"); return; }
+  if(!ADMIN && !phoneOk(state.phone)){ sendStatus(SEND_ERR.phone_required,"err"); $("phone").focus(); return; }
   if(!/^https:\/\/script\.google\.com\//.test(RECEIVER_URL)){ sendStatus("الإرسال غير مفعّل بعد. تواصل مع المؤسسة.","err"); return; }
   const btn=$("send"); btn.disabled=true; btn.textContent="جارٍ الإرسال…"; sendStatus("لا تغلق الصفحة حتى تظهر رسالة التأكيد.");
   try{
     const payload={ poster:await blobToB64(await posterBlob("image/png")), posterType:"image/png", thumb:thumbB64(), photo:photoB64(),
-      name:state.name, degree:state.degree, spec:state.spec, thesis:state.noThesis?"":state.thesis, noThesis:!!state.noThesis, date:dateDZ(state.date), dateISO:state.dateISO, faculty:state.faculty, uni:uniFull(), batch:state.batch, phone:state.phone, crop:{ z:+photo.zoom.toFixed(3), x:+photo.ox.toFixed(4), y:+photo.oy.toFixed(4) } };
+      name:state.name, degree:state.degree, spec:state.spec, thesis:state.noThesis?"":state.thesis, noThesis:!!state.noThesis, date:dateDZ(state.date), dateISO:state.dateISO, faculty:state.faculty, uni:uniFull(), batch:state.batch, phone:state.phone, crop:{ z:+photo.zoom.toFixed(3), x:+photo.ox.toFixed(4), y:+photo.oy.toFixed(4) },
+      website:$("website").value };
+    if(ADMIN){ try{ payload.adminKey = localStorage.getItem("tahani-admin") || ""; }catch(_){} }
     const res=await fetch(RECEIVER_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
-    const j=await res.json(); if(!j.ok) throw new Error(j.error||"failed");
-    sent=true; btn.textContent="تم الإرسال ✓"; sendStatus("وصلت بطاقتك، شكراً لك. ستُنشر قريباً بإذن الله.","ok");
+    const j=await res.json(); if(!j.ok){ const er=new Error(j.error||"failed"); er.code=j.error; throw er; }
+    sent=true; if(!ADMIN) bumpSent();
+    btn.textContent="تم الإرسال ✓"; sendStatus("وصلت بطاقتك، شكراً لك. ستُنشر قريباً بإذن الله.","ok");
   }catch(e){
-    btn.disabled=false; btn.textContent="إرسال البطاقة"; sendStatus("تعذّر الإرسال. تحقق من اتصالك بالإنترنت وحاول مرة أخرى.","err");
+    btn.disabled=false; btn.textContent="إرسال البطاقة";
+    sendStatus(SEND_ERR[e.code] || "تعذّر الإرسال. تحقق من اتصالك بالإنترنت وحاول مرة أخرى.","err");
   }
 };
 
@@ -825,7 +863,9 @@ async function adminApi(action, extra={}){
 function editStatus(t,kind){ const el=$("editStatus"); el.textContent=t; el.className="status"+(kind?" "+kind:""); }
 const INST_WORDS=["جامعة","معهد","المعهد","المدرسة"];
 function fillForm(it){
-  ["name","phone","faculty","spec","thesis","date","batch"].forEach(k=>{ state[k]=it[k]||""; $(k).value=state[k]; });
+  ["phone","faculty","spec","thesis","date","batch"].forEach(k=>{ state[k]=it[k]||""; $(k).value=state[k]; });
+  { const p=String(it.name||"").split(/\s+بن\s+/); state.nameBase=p[0]||""; state.father=p[1]||""; state.grand=p.slice(2).join(" بن ");
+    ["nameBase","father","grand"].forEach(k=>$(k).value=state[k]); composeName(); }
   state.dateISO=it.dateISO||"";
   state.noThesis = it.noThesis==="1";
   applyNoThesis();
